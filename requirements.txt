@@ -1,0 +1,9 @@
+sqlalchemy>=2.0.0
+fastapi
+uvicorn
+aiogram>=3.0.0
+pydantic-settings
+psycopg2-binary
+alembic
+python-dotenv
+asyncio
