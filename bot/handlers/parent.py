@@ -58,11 +58,12 @@ async def my_children_handler(message: types.Message):
     children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == parent.id).all()
     
     if not children:
-        await message.answer("You haven't linked any children yet. Use 'Link Child' to begin.")
+        await message.answer("You haven't linked any children yet. Use 'Add New Student' to begin.")
     else:
         resp = "👶 *Your Registered Children:*\n\n"
         for child in children:
-            resp += f"• {child.full_name} (ID: `{child.telegram_id}`)\n"
+            id_str = f"`{child.telegram_id}`" if child.telegram_id else "_Shared Account_"
+            resp += f"• {child.full_name} (ID: {id_str})\n"
         await message.answer(resp, parse_mode="Markdown")
     db.close()
 
@@ -119,15 +120,73 @@ async def show_all_children_reports(message: types.Message):
     db.close()
 
 @router.message(F.text == "Add New Student")
-async def add_new_student_instruction(message: types.Message):
-    resp = (
-        "🆕 *How to Register a New Student:*\n\n"
-        "1. Ask your child to start this bot (@tutorbot2bot).\n"
-        "2. They should select *'Student'* and follow the registration steps.\n"
-        "3. Once they finish, use the *'Link Child'* button here and type their full name.\n\n"
-        "That's it! They will then appear in your portal."
+async def add_new_student_start(message: types.Message, state: FSMContext):
+    await message.answer("Let's register your child. What is their **Full Name**?", 
+                         reply_markup=types.ReplyKeyboardRemove(),
+                         parse_mode="Markdown")
+    await state.set_state(ParentStates.adding_student_name)
+
+@router.message(ParentStates.adding_student_name)
+async def process_added_student_name(message: types.Message, state: FSMContext):
+    await state.update_data(added_student_name=message.text)
+    await message.answer("Which **Grade** is your child in?", parse_mode="Markdown")
+    await state.set_state(ParentStates.adding_student_grade)
+
+@router.message(ParentStates.adding_student_grade)
+async def process_added_student_grade(message: types.Message, state: FSMContext):
+    await state.update_data(added_student_grade=message.text)
+    await message.answer("What **School** do they attend?", parse_mode="Markdown")
+    await state.set_state(ParentStates.adding_student_school)
+
+@router.message(ParentStates.adding_student_school)
+async def process_added_student_school(message: types.Message, state: FSMContext):
+    await state.update_data(added_student_school=message.text)
+    await message.answer("How **Old** is your child?", parse_mode="Markdown")
+    await state.set_state(ParentStates.adding_student_age)
+
+@router.message(ParentStates.adding_student_age)
+async def process_added_student_age(message: types.Message, state: FSMContext):
+    try:
+        age = int(message.text)
+    except ValueError:
+        await message.answer("Please enter a valid number for age.")
+        return
+
+    data = await state.get_data()
+    db = SessionLocal()
+    
+    # 1. Create a "Virtual" User for the child (no telegram_id)
+    # This allows the child to exist in our system for sessions/reports
+    from database.models import UserRole
+    child_user = User(
+        full_name=data['added_student_name'],
+        telegram_id=None # No separate telegram account
     )
-    await message.answer(resp, parse_mode="Markdown")
+    db.add(child_user)
+    db.commit()
+    db.refresh(child_user)
+    
+    # 2. Assign Student Role
+    role = UserRole(user_id=child_user.id, role="student")
+    db.add(role)
+    
+    # 3. Create Student Profile linked to this Parent
+    parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    profile = StudentProfile(
+        user_id=child_user.id,
+        grade=data['added_student_grade'],
+        school=data['added_student_school'],
+        age=age,
+        parent_id=parent.id
+    )
+    db.add(profile)
+    db.commit()
+    
+    roles = [r.role for r in parent.roles]
+    await message.answer(f"🎉 Successfully registered and linked {child_user.full_name} to your account!", 
+                         reply_markup=get_main_menu(roles))
+    db.close()
+    await state.clear()
 
 @router.message(F.text.startswith("Reports for "))
 async def show_child_reports(message: types.Message):

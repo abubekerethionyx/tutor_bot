@@ -15,41 +15,47 @@ def get_main_menu(roles: list[str] = None):
         roles = ["student"]
         
     builder = ReplyKeyboardBuilder()
+    
+    # Common actions
     builder.row(
         types.KeyboardButton(text="Profile"),
         types.KeyboardButton(text="Search Tutors")
     )
     
+    # Session Management
     builder.row(
         types.KeyboardButton(text="Create Session"),
         types.KeyboardButton(text="My Sessions")
     )
     
+    # Tutor specific
     if "tutor" in roles:
         builder.row(
             types.KeyboardButton(text="Create Report"),
             types.KeyboardButton(text="My Students")
         )
+        
+    # Parent specific
     if "parent" in roles:
         builder.row(
-            types.KeyboardButton(text="Link Child"),
-            types.KeyboardButton(text="My Children")
+            types.KeyboardButton(text="Add New Student"),
+            types.KeyboardButton(text="Link Child")
         )
         builder.row(
+            types.KeyboardButton(text="My Children"),
             types.KeyboardButton(text="Child Reports")
         )
-        builder.row(
-            types.KeyboardButton(text="Add New Student")
-        )
     
-    # Allow adding missing roles (only if not a parent or explicitly requested)
+    # Only show 'Register as' if they aren't a parent yet
     if "parent" not in roles:
         all_roles = ["student", "tutor", "parent"]
         for r in all_roles:
             if r not in roles:
                 builder.row(types.KeyboardButton(text=f"Register as {r.capitalize()}"))
         
-    builder.row(types.KeyboardButton(text="Back"))
-    builder.row(types.KeyboardButton(text="Help"))
+    builder.row(
+        types.KeyboardButton(text="Back"),
+        types.KeyboardButton(text="Help")
+    )
     
     return builder.as_markup(resize_keyboard=True)

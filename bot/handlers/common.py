@@ -177,11 +177,58 @@ async def enroll_callback(callback: types.CallbackQuery):
         db.close()
         return
 
+    roles = [r.role for r in user.roles]
+    
+    # If the user is a parent, ask which child to enroll
+    if "parent" in roles:
+        from database.models import StudentProfile
+        children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == user.id).all()
+        
+        if not children:
+            await callback.answer("You haven't added any children yet. Go to the main menu and use 'Add New Student'.", show_alert=True)
+            db.close()
+            return
+
+        # Show inline buttons for children
+        builder = InlineKeyboardBuilder()
+        for child in children:
+            builder.button(text=child.full_name, callback_data=f"childenroll_{tutor_id}_{child.id}")
+        builder.adjust(1)
+        
+        await callback.message.answer("Which child are you enrolling?", reply_markup=builder.as_markup())
+        await callback.answer()
+        db.close()
+        return
+
+    # Standard student enrollment
     from services.session_service import SessionService
     try:
         SessionService.enroll_student(db, user.id, tutor_id)
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer("🎉 Successfully enrolled! The tutor will contact you soon.")
+        await callback.answer()
+    except Exception as e:
+        await callback.answer(f"Error: {str(e)}", show_alert=True)
+    finally:
+        db.close()
+
+@router.callback_query(F.data.startswith("childenroll_"))
+async def handle_child_enrollment(callback: types.CallbackQuery):
+    # format: childenroll_tutorid_childid
+    parts = callback.data.split("_")
+    tutor_id = int(parts[1])
+    child_id = int(parts[2])
+    
+    db = SessionLocal()
+    from services.session_service import SessionService
+    try:
+        SessionService.enroll_student(db, child_id, tutor_id)
+        # Find child name for confirmation
+        from database.models import User
+        child = db.query(User).filter(User.id == child_id).first()
+        child_name = child.full_name if child else "your child"
+        
+        await callback.message.edit_text(f"🎉 Successfully enrolled **{child_name}** with the tutor!", parse_mode="Markdown")
         await callback.answer()
     except Exception as e:
         await callback.answer(f"Error: {str(e)}", show_alert=True)
