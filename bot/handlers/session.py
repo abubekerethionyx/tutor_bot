@@ -80,6 +80,139 @@ async def process_student_pick(message: types.Message, state: FSMContext):
     
     db.close()
 
+@router.message(F.text == "My Sessions")
+async def my_sessions_handler(message: types.Message, state: FSMContext):
+    db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    
+    if not user:
+        await message.answer("Please register first.")
+        db.close()
+        return
+
+    roles = [r.role for r in user.roles]
+    is_tutor = "tutor" in roles
+    is_parent = "parent" in roles
+    is_student = "student" in roles
+
+    # Parent/Tutor must select student
+    if is_parent or is_tutor:
+        builder = ReplyKeyboardBuilder()
+        
+        if is_parent:
+            profiles = UserService.get_managed_children(db, user.id)
+            prompt = "Select a child to view sessions for:"
+            label_prefix = "Child"
+        else: # is_tutor
+            enrollments = SessionService.get_enrollments_for_tutor(db, user.id)
+            profiles = []
+            seen_ids = set()
+            for enr in enrollments:
+                if enr.student_profile_id not in seen_ids:
+                    p = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
+                    if p:
+                        profiles.append(p)
+                        seen_ids.add(p.id)
+            prompt = "Select a student to view sessions for:"
+            label_prefix = "Student"
+
+        if not profiles:
+            entity = "children" if is_parent else "students"
+            await message.answer(f"You have no linked {entity}.")
+            db.close()
+            return
+
+        for p in profiles:
+            builder.button(text=f"{label_prefix}: {p.full_name} (ID: {p.id})")
+        
+        builder.adjust(1)
+        builder.button(text="Back")
+        
+        await message.answer(prompt, reply_markup=builder.as_markup(resize_keyboard=True))
+        await state.set_state(SessionStates.waiting_for_student_filter)
+        await state.update_data(session_filter_role="parent" if is_parent else "tutor")
+        db.close()
+        return
+
+    # Student: View own sessions without selection
+    if is_student:
+        sessions = SessionService.get_user_sessions(db, user.id, "student")
+        if not sessions:
+            await message.answer("You have no upcoming sessions.")
+        else:
+            response = "📅 *Your Sessions:*\n\n"
+            for sess in sessions:
+                tutor = db.query(User).filter(User.id == sess.tutor_id).first()
+                with_name = tutor.full_name if tutor else "Unknown"
+                response += (
+                    f"🔹 *{sess.topic}*\n"
+                    f"👤 Tutor: {with_name}\n"
+                    f"⏰ {sess.scheduled_at.strftime('%Y-%m-%d %H:%M')}\n"
+                    f"⏳ {sess.duration_minutes} min\n\n"
+                )
+            await message.answer(response, parse_mode='Markdown')
+        db.close()
+        return
+
+    await message.answer("Unknown role.")
+    db.close()
+
+@router.message(SessionStates.waiting_for_student_filter)
+async def process_student_filter(message: types.Message, state: FSMContext):
+    if message.text == "Back":
+        await state.clear()
+        # Need user to pass roles to get_main_menu, re-fetch user
+        db = SessionLocal()
+        user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        roles = [r.role for r in user.roles] if user else []
+        db.close()
+        await message.answer("Main Menu", reply_markup=get_main_menu(roles))
+        return
+
+    try:
+        # Format: "Child: Name (ID: 123)" or "Student: Name (ID: 123)"
+        profile_id = int(message.text.split("ID: ")[1].replace(")", ""))
+        
+        db = SessionLocal()
+        
+        # Verify ownership/access?
+        # Assuming ID from sticky keyboard is valid for now
+        
+        sessions = SessionService.get_profile_sessions(db, profile_id)
+        
+        profile = db.query(StudentProfile).filter(StudentProfile.id == profile_id).first()
+        name = profile.full_name if profile else "Student"
+        
+        if not sessions:
+            await message.answer(f"📅 No sessions found for {name}.")
+        else:
+            response = f"📅 *Sessions for {name}:*\n\n"
+            for sess in sessions:
+                tutor = db.query(User).filter(User.id == sess.tutor_id).first()
+                tutor_name = tutor.full_name if tutor else "Unknown"
+                
+                response += (
+                    f"🔹 *{sess.topic}*\n"
+                    f"👤 Tutor: {tutor_name}\n"
+                    f"⏰ {sess.scheduled_at.strftime('%Y-%m-%d %H:%M')}\n"
+                    f"⏳ {sess.duration_minutes} min\n\n"
+                )
+            await message.answer(response, parse_mode="Markdown")
+            
+        # Don't clear state if we want better navigation? Or clear and return to menu?
+        # Typically clear state after showing result.
+        
+        await state.clear()
+        # Return to main menu
+        user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        roles = [r.role for r in user.roles] if user else []
+        await message.answer("What would you like to do next?", reply_markup=get_main_menu(roles))
+        db.close()
+        
+    except (IndexError, ValueError):
+        await message.answer("Please select a student from the keyboard.")
+
+
 @router.message(SessionStates.waiting_for_topic)
 async def process_topic(message: types.Message, state: FSMContext):
     await state.update_data(topic=message.text)

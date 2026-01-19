@@ -135,6 +135,19 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 @router.message(F.text == "Search Tutors")
 async def search_tutors_handler(message: types.Message):
     db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    
+    if not user:
+        await message.answer("Please register first.")
+        db.close()
+        return
+
+    roles = [r.role for r in user.roles]
+    if "student" not in roles and "parent" not in roles:
+        await message.answer("Search functionality is only available for active students and parents.")
+        db.close()
+        return
+
     tutors = UserService.search_tutors(db)
     
     if not tutors:
@@ -234,64 +247,7 @@ async def handle_child_enrollment(callback: types.CallbackQuery):
     finally:
         db.close()
 
-@router.message(F.text == "My Sessions")
-async def my_sessions_handler(message: types.Message):
-    db = SessionLocal()
-    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    
-    if user:
-        roles = [r.role for r in user.roles]
-        primary_role = "tutor" if "tutor" in roles else ("parent" if "parent" in roles else "student")
-        
-        if primary_role == "parent":
-            children = UserService.get_managed_children(db, user.id)
-            if not children:
-                await message.answer("No children linked.")
-                db.close()
-                return
-            
-            response = "📅 *Family Sessions:*\n\n"
-            found = False
-            for child in children:
-                sessions = SessionService.get_profile_sessions(db, child.id)
-                if sessions:
-                    found = True
-                    response += f"👶 *{child.full_name}:*\n"
-                    for sess in sessions:
-                        tutor = db.query(User).filter(User.id == sess.tutor_id).first()
-                        tutor_name = tutor.full_name if tutor else "Unknown"
-                        response += f"• {sess.topic} w/ {tutor_name} ({sess.scheduled_at.strftime('%Y-%m-%d %H:%M')})\n"
-                    response += "\n"
-            
-            if not found:
-                await message.answer("No upcoming sessions for your family.")
-            else:
-                await message.answer(response, parse_mode="Markdown")
-        else:
-            sessions = SessionService.get_user_sessions(db, user.id, primary_role)
-            if not sessions:
-                await message.answer("You have no upcoming sessions.")
-            else:
-                response = "📅 *Your Sessions:*\n\n"
-                for sess in sessions:
-                    with_name = ""
-                    if primary_role == "tutor":
-                        with_name = sess.student_profile.full_name if sess.student_profile else "Unknown"
-                    else:
-                        tutor = db.query(User).filter(User.id == sess.tutor_id).first()
-                        with_name = tutor.full_name if tutor else "Unknown"
-                    
-                    label = "Student" if primary_role == "tutor" else "Tutor"
-                    response += (
-                        f"🔹 *{sess.topic}*\n"
-                        f"👤 {label}: {with_name}\n"
-                        f"⏰ {sess.scheduled_at.strftime('%Y-%m-%d %H:%M')}\n"
-                        f"⏳ {sess.duration_minutes} min\n\n"
-                    )
-                await message.answer(response, parse_mode="Markdown")
-    else:
-        await message.answer("Please register first.")
-    db.close()
+
 
 @router.message(F.text == "Help")
 async def help_handler(message: types.Message):
@@ -323,7 +279,6 @@ async def help_handler(message: types.Message):
             "• *My Sessions*: View your upcoming and past sessions\n"
             "• *My Attendance*: Check your attendance record\n"
             "• *Profile*: View your academic information and stats\n"
-            "• *Create Session*: Schedule a new session with your enrolled tutors\n"
         )
     
     if "tutor" in roles:
@@ -343,7 +298,6 @@ async def help_handler(message: types.Message):
             "• *Link Child*: Connect an existing student account to your parent portal\n"
             "• *My Children*: View all your registered children\n"
             "• *Child Reports*: Access performance reports for each child\n"
-            "• *Create Session*: Schedule sessions for your children\n"
             "• *Search Tutors*: Find and enroll tutors for your children\n"
         )
     

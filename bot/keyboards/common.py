@@ -18,8 +18,7 @@ def get_main_menu(roles: list[str] = None):
     
     # Common actions
     builder.row(
-        types.KeyboardButton(text="Profile"),
-        types.KeyboardButton(text="Search Tutors")
+        types.KeyboardButton(text="Profile")
     )
     
     # Session Management
@@ -29,7 +28,10 @@ def get_main_menu(roles: list[str] = None):
     
     # Student specific
     if "student" in roles and "tutor" not in roles and "parent" not in roles:
-        builder.row(types.KeyboardButton(text="My Attendance"))
+        builder.row(
+            types.KeyboardButton(text="Search Tutors"),
+            types.KeyboardButton(text="My Attendance")
+        )
     
     # Tutor specific
     if "tutor" in roles:
@@ -51,7 +53,8 @@ def get_main_menu(roles: list[str] = None):
         builder.row(
             types.KeyboardButton(text="My Children"),
             types.KeyboardButton(text="Child Reports"),
-            types.KeyboardButton(text="My Attendance")
+            types.KeyboardButton(text="My Attendance"),
+            types.KeyboardButton(text="Search Tutors")
         )
     
     # Only students can register as parents. Tutors and Parents have their own portals.
