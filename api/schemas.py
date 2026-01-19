@@ -63,3 +63,34 @@ class SessionResponse(BaseModel):
     topic: str
     class Config:
         from_attributes = True
+
+# --- Admin Schemas ---
+
+class AdminStudentDetail(BaseModel):
+    id: int
+    full_name: str
+    phone: Optional[str]
+    telegram_id: int
+    grade: str
+    school: str
+    age: int
+    created_at: datetime
+
+class AdminTutorDetail(BaseModel):
+    id: int
+    full_name: str
+    phone: Optional[str]
+    telegram_id: int
+    subjects: str
+    education: str
+    experience_years: int
+    verified: bool
+    created_at: datetime
+
+class SessionReportSummary(BaseModel):
+    period: str
+    total_sessions: int
+    total_duration_minutes: int
+    total_reports: int
+    average_performance_score: float
+    sessions: List[SessionResponse]

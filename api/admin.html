@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutormula Admin Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #ec4899;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+            --success: #22c55e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            background-image: radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent),
+                radial-gradient(circle at bottom left, rgba(236, 72, 153, 0.1), transparent);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            position: fixed;
+            height: 100vh;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        .nav-item {
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary);
+        }
+
+        /* Main Content */
+        .main {
+            margin-left: 260px;
+            flex: 1;
+            padding: 2rem;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .user-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        /* Hide the secret token input as it's now in localStorage */
+        #admin-token {
+            display: none;
+        }
+
+        .btn-logout {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-logout:hover {
+            background: #ef4444;
+            color: white;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        /* Tables */
+        .table-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            margin-bottom: 2rem;
+            display: none;
+        }
+
+        .table-container.active {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.95rem;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 2rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-verified {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--success);
+        }
+
+        .badge-pending {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fade {
+            animation: fadeIn 0.5s ease forwards;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sidebar">
+        <div class="logo">TutorMula Admin</div>
+        <nav>
+            <div class="nav-item active" onclick="showSection('students')">Students</div>
+            <div class="nav-item" onclick="showSection('tutors')">Tutors</div>
+            <div class="nav-item" onclick="showSection('reports')">Reports</div>
+        </nav>
+    </div>
+
+    <div class="main">
+        <header>
+            <h1 id="section-title">Students Registry</h1>
+            <div class="user-actions">
+                <input type="password" id="admin-token">
+                <button onclick="refreshData()">Refresh</button>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <div id="stats-container" class="stats-grid animate-fade" style="display: none;">
+            <!-- Stats will be loaded here -->
+        </div>
+
+        <div id="students-table" class="table-container active animate-fade">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Grade</th>
+                        <th>School</th>
+                        <th>Age</th>
+                        <th>Phone</th>
+                    </tr>
+                </thead>
+                <tbody id="students-body">
+                    <!-- Data here -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="tutors-table" class="table-container animate-fade">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Subjects</th>
+                        <th>Education</th>
+                        <th>Exp</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tutors-body">
+                    <!-- Data here -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="reports-section" class="animate-fade" style="display: none;">
+            <div class="stats-grid" id="report-stats">
+                <!-- Session stats here -->
+            </div>
+            <div class="table-container active">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Topic</th>
+                            <th>Duration</th>
+                            <th>Student ID</th>
+                            <th>Tutor ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reports-body">
+                        <!-- Session list here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSection = 'students';
+
+        // Check for authentication on load
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('adminToken');
+            if (!token) {
+                window.location.href = '/admin/login';
+                return;
+            }
+            loadStudents();
+        });
+
+        async function fetchData(endpoint) {
+            const token = localStorage.getItem('adminToken');
+            if (!token) {
+                window.location.href = '/admin/login';
+                return null;
+            }
+
+            const response = await fetch(endpoint, {
+                headers: {
+                    'x-admin-token': token
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                localStorage.removeItem('adminToken');
+                window.location.href = '/admin/login';
+                return null;
+            }
+
+            if (!response.ok) {
+                alert('Error fetching data');
+                return null;
+            }
+            return await response.json();
+        }
+
+        async function showSection(section) {
+            currentSection = section;
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            // Correct way to find the clicked item if this is called from onclick
+            if (event) {
+                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                event.currentTarget.classList.add('active');
+            }
+
+            document.getElementById('section-title').innerText = section.charAt(0).toUpperCase() + section.slice(1);
+
+            document.getElementById('students-table').style.display = 'none';
+            document.getElementById('tutors-table').style.display = 'none';
+            document.getElementById('reports-section').style.display = 'none';
+            document.getElementById('stats-container').style.display = 'none';
+
+            if (section === 'students') {
+                document.getElementById('students-table').style.display = 'block';
+                loadStudents();
+            } else if (section === 'tutors') {
+                document.getElementById('tutors-table').style.display = 'block';
+                loadTutors();
+            } else if (section === 'reports') {
+                document.getElementById('reports-section').style.display = 'block';
+                loadReports('daily');
+            }
+        }
+
+        async function loadStudents() {
+            const data = await fetchData('/admin/students');
+            if (!data) return;
+            const body = document.getElementById('students-body');
+            body.innerHTML = '';
+            data.forEach(s => {
+                body.innerHTML += `
+                    <tr>
+                        <td>${s.id}</td>
+                        <td style="font-weight: 600">${s.full_name}</td>
+                        <td>${s.grade}</td>
+                        <td>${s.school}</td>
+                        <td>${s.age}</td>
+                        <td style="color: var(--text-dim)">${s.phone || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadTutors() {
+            const data = await fetchData('/admin/tutors');
+            if (!data) return;
+            const body = document.getElementById('tutors-body');
+            body.innerHTML = '';
+            data.forEach(t => {
+                body.innerHTML += `
+                    <tr>
+                        <td>${t.id}</td>
+                        <td style="font-weight: 600">${t.full_name}</td>
+                        <td>${t.subjects}</td>
+                        <td>${t.education}</td>
+                        <td>${t.experience_years}y</td>
+                        <td><span class="badge ${t.verified ? 'badge-verified' : 'badge-pending'}">${t.verified ? 'Verified' : 'Pending'}</span></td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadReports(period) {
+            const data = await fetchData(`/admin/reports/sessions?period=${period}`);
+            if (!data) return;
+
+            const stats = document.getElementById('report-stats');
+            stats.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-label">Total Sessions</div>
+                    <div class="stat-value">${data.total_sessions}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Duration (min)</div>
+                    <div class="stat-value">${data.total_duration_minutes}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Performance</div>
+                    <div class="stat-value">${data.average_performance_score.toFixed(1)} / 10</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Reports</div>
+                    <div class="stat-value">${data.total_reports}</div>
+                </div>
+            `;
+
+            const body = document.getElementById('reports-body');
+            body.innerHTML = '';
+            data.sessions.forEach(sess => {
+                body.innerHTML += `
+                    <tr>
+                        <td>${new Date(sess.scheduled_at).toLocaleString()}</td>
+                        <td style="font-weight: 600">${sess.topic}</td>
+                        <td>${sess.duration_minutes}m</td>
+                        <td>${sess.student_id}</td>
+                        <td>${sess.tutor_id}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function refreshData() {
+            showSection(currentSection);
+        }
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            window.location.href = '/admin/login';
+        }
+
+        // Initial load is now handled by the window.onload check
+    </script>
+</body>
+
+</html>
