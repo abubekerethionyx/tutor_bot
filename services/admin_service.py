@@ -115,3 +115,45 @@ class AdminService:
             db.commit()
             return True
         return False
+
+    @staticmethod
+    def get_user_sessions_detailed(db: Session, user_id: int, role: str) -> List[Dict[str, Any]]:
+        student_alias = aliased(User)
+        tutor_alias = aliased(User)
+        
+        query = db.query(
+            TSession.id,
+            TSession.topic,
+            TSession.scheduled_at,
+            TSession.duration_minutes,
+            TSession.student_id,
+            TSession.tutor_id,
+            student_alias.full_name.label("student_name"),
+            tutor_alias.full_name.label("tutor_name"),
+            Report.content.label("report_content"),
+            Report.performance_score.label("report_score")
+        ).join(student_alias, TSession.student_id == student_alias.id)\
+         .join(tutor_alias, TSession.tutor_id == tutor_alias.id)\
+         .outerjoin(Report, TSession.id == Report.session_id)
+
+        if role == "tutor":
+            query = query.filter(TSession.tutor_id == user_id)
+        else:
+            query = query.filter(TSession.student_id == user_id)
+
+        sessions = []
+        for s in query.all():
+            sessions.append({
+                "id": s.id,
+                "topic": s.topic,
+                "scheduled_at": s.scheduled_at,
+                "duration_minutes": s.duration_minutes,
+                "student_name": s.student_name,
+                "tutor_name": s.tutor_name,
+                "other_party": s.student_name if role == "tutor" else s.tutor_name,
+                "report": {
+                    "content": s.report_content,
+                    "score": s.report_score
+                } if s.report_content else None
+            })
+        return sessions

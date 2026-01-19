@@ -123,3 +123,12 @@ def verify_tutor(
     if not success:
         raise HTTPException(status_code=404, detail="Tutor not found")
     return {"message": "Tutor status updated"}
+
+@app.get("/admin/users/{user_id}/sessions")
+def get_user_sessions_admin(
+    user_id: int,
+    role: str = Query("student", enum=["student", "tutor"]),
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    return AdminService.get_user_sessions_detailed(db, user_id, role)

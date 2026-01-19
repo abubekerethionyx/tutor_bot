@@ -214,6 +214,66 @@
         .animate-fade {
             animation: fadeIn 0.5s ease forwards;
         }
+
+        /* Modal / Detail View */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 1.5rem;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 1);
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .session-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .report-box {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(99, 102, 241, 0.1);
+            border-left: 3px solid var(--primary);
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 
@@ -300,6 +360,17 @@
         </div>
     </div>
 
+    <!-- Modal for User Detail -->
+    <div id="user-modal" class="modal-overlay">
+        <div class="modal">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <h2 id="modal-title" style="margin-bottom: 1.5rem;">User Sessions</h2>
+            <div id="modal-content">
+                <!-- Sessions list here -->
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentSection = 'students';
 
@@ -376,7 +447,7 @@
                 body.innerHTML += `
                     <tr>
                         <td>${s.id}</td>
-                        <td style="font-weight: 600">${s.full_name}</td>
+                        <td style="font-weight: 600; cursor: pointer; color: var(--primary)" onclick="viewUserSessions(${s.id}, 'student', '${s.full_name}')">${s.full_name}</td>
                         <td>${s.grade}</td>
                         <td>${s.school}</td>
                         <td>${s.age}</td>
@@ -395,7 +466,7 @@
                 body.innerHTML += `
                     <tr>
                         <td>${t.id}</td>
-                        <td style="font-weight: 600">${t.full_name}</td>
+                        <td style="font-weight: 600; cursor: pointer; color: var(--primary)" onclick="viewUserSessions(${t.id}, 'tutor', '${t.full_name}')">${t.full_name}</td>
                         <td>${t.subjects}</td>
                         <td>${t.experience_years}y</td>
                         <td><span class="badge ${t.verified ? 'badge-verified' : 'badge-pending'}">${t.verified ? 'Verified' : 'Pending'}</span></td>
@@ -459,6 +530,46 @@
                     </tr>
                 `;
             });
+        }
+
+        async function viewUserSessions(userId, role, name) {
+            document.getElementById('modal-title').innerText = `${name}'s Sessions (${role})`;
+            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Loading sessions...</p>';
+            document.getElementById('user-modal').style.display = 'flex';
+
+            const data = await fetchData(`/admin/users/${userId}/sessions?role=${role}`);
+            if (!data) return;
+
+            const content = document.getElementById('modal-content');
+            if (data.length === 0) {
+                content.innerHTML = '<p style="color: var(--text-dim)">No sessions found for this user.</p>';
+                return;
+            }
+
+            content.innerHTML = '';
+            data.forEach(sess => {
+                content.innerHTML += `
+                    <div class="session-card">
+                        <div class="session-header">
+                            <span>${sess.topic}</span>
+                            <span style="color: var(--text-dim)">${new Date(sess.scheduled_at).toLocaleString()}</span>
+                        </div>
+                        <div style="font-size: 0.9rem; color: var(--text-dim)">
+                            With ${sess.other_party} | Duration: ${sess.duration_minutes} min
+                        </div>
+                        ${sess.report ? `
+                            <div class="report-box">
+                                <div style="font-weight: 600; margin-bottom: 0.25rem;">Report (Score: ${sess.report.score}/10)</div>
+                                ${sess.report.content}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('user-modal').style.display = 'none';
         }
 
         function refreshData() {
