@@ -58,6 +58,8 @@ class SessionResponse(BaseModel):
     id: int
     tutor_id: int
     student_id: int
+    tutor_name: Optional[str] = None
+    student_name: Optional[str] = None
     scheduled_at: datetime
     duration_minutes: int
     topic: str

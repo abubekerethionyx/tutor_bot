@@ -266,9 +266,9 @@
                         <th>ID</th>
                         <th>Name</th>
                         <th>Subjects</th>
-                        <th>Education</th>
                         <th>Exp</th>
                         <th>Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="tutors-body">
@@ -288,8 +288,8 @@
                             <th>Time</th>
                             <th>Topic</th>
                             <th>Duration</th>
-                            <th>Student ID</th>
-                            <th>Tutor ID</th>
+                            <th>Student</th>
+                            <th>Tutor</th>
                         </tr>
                     </thead>
                     <tbody id="reports-body">
@@ -397,12 +397,29 @@
                         <td>${t.id}</td>
                         <td style="font-weight: 600">${t.full_name}</td>
                         <td>${t.subjects}</td>
-                        <td>${t.education}</td>
                         <td>${t.experience_years}y</td>
                         <td><span class="badge ${t.verified ? 'badge-verified' : 'badge-pending'}">${t.verified ? 'Verified' : 'Pending'}</span></td>
+                        <td>
+                            <button class="badge" style="background: var(--primary); cursor: pointer" onclick="toggleVerify(${t.id}, ${!t.verified})">
+                                ${t.verified ? 'Unverify' : 'Verify'}
+                            </button>
+                        </td>
                     </tr>
                 `;
             });
+        }
+
+        async function toggleVerify(tutorId, status) {
+            const token = localStorage.getItem('adminToken');
+            const response = await fetch(`/admin/tutors/${tutorId}/verify?status=${status}`, {
+                method: 'POST',
+                headers: { 'x-admin-token': token }
+            });
+            if (response.ok) {
+                loadTutors();
+            } else {
+                alert('Action failed');
+            }
         }
 
         async function loadReports(period) {
@@ -437,8 +454,8 @@
                         <td>${new Date(sess.scheduled_at).toLocaleString()}</td>
                         <td style="font-weight: 600">${sess.topic}</td>
                         <td>${sess.duration_minutes}m</td>
-                        <td>${sess.student_id}</td>
-                        <td>${sess.tutor_id}</td>
+                        <td>${sess.student_name || sess.student_id}</td>
+                        <td>${sess.tutor_name || sess.tutor_id}</td>
                     </tr>
                 `;
             });

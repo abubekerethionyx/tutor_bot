@@ -111,3 +111,15 @@ def get_admin_session_report(
     admin: str = Depends(verify_admin)
 ):
     return AdminService.get_session_stats(db, period)
+
+@app.post("/admin/tutors/{tutor_id}/verify")
+def verify_tutor(
+    tutor_id: int,
+    status: bool = Query(True),
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    success = AdminService.verify_tutor(db, tutor_id, status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Tutor not found")
+    return {"message": "Tutor status updated"}

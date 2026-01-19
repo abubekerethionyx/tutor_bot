@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, aliased
 from sqlalchemy import func
 from database.models import User, UserRole, StudentProfile, TutorProfile, Session as TSession, Report
 from datetime import datetime, timedelta
@@ -69,7 +69,34 @@ class AdminService:
         total_reports = db.query(Report).filter(Report.created_at >= start_date).count()
         avg_score = db.query(func.avg(Report.performance_score)).filter(Report.created_at >= start_date).scalar() or 0
 
-        sessions = db.query(TSession).filter(TSession.scheduled_at >= start_date).all()
+        student_alias = aliased(User)
+        tutor_alias = aliased(User)
+        
+        sessions_query = db.query(
+            TSession.id,
+            TSession.topic,
+            TSession.scheduled_at,
+            TSession.duration_minutes,
+            TSession.student_id,
+            TSession.tutor_id,
+            student_alias.full_name.label("student_name"),
+            tutor_alias.full_name.label("tutor_name")
+        ).join(student_alias, TSession.student_id == student_alias.id)\
+         .join(tutor_alias, TSession.tutor_id == tutor_alias.id)\
+         .filter(TSession.scheduled_at >= start_date)
+        
+        sessions = [
+            {
+                "id": s.id,
+                "topic": s.topic,
+                "scheduled_at": s.scheduled_at,
+                "duration_minutes": s.duration_minutes,
+                "student_id": s.student_id,
+                "tutor_id": s.tutor_id,
+                "student_name": s.student_name,
+                "tutor_name": s.tutor_name
+            } for s in sessions_query.all()
+        ]
         
         return {
             "period": period,
@@ -79,3 +106,12 @@ class AdminService:
             "average_performance_score": float(avg_score),
             "sessions": sessions
         }
+
+    @staticmethod
+    def verify_tutor(db: Session, tutor_id: int, status: bool) -> bool:
+        profile = db.query(TutorProfile).filter(TutorProfile.user_id == tutor_id).first()
+        if profile:
+            profile.verified = status
+            db.commit()
+            return True
+        return False
