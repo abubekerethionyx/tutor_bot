@@ -15,7 +15,9 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     roles = relationship("UserRole", back_populates="user")
-
+    # New relationships for the advanced model
+    student_profile = relationship("StudentProfile", back_populates="user", uselist=False, foreign_keys="StudentProfile.user_id")
+    managed_children = relationship("StudentProfile", back_populates="parent", foreign_keys="StudentProfile.parent_id")
 
 class UserRole(Base):
     __tablename__ = "user_roles"
@@ -30,15 +32,23 @@ class UserRole(Base):
 class StudentProfile(Base):
     __tablename__ = "student_profiles"
 
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True) # The student's own account
+    parent_id = Column(Integer, ForeignKey("users.id"), nullable=True) # The parent's account
+    
+    # Store child's name directly to support virtual students (sharing parent's account)
+    # If user_id is set, this name should match user.full_name
+    full_name = Column(String, nullable=False)
     grade = Column(String)
     school = Column(String)
     age = Column(Integer)
 
-    parent_id = Column(Integer, ForeignKey("users.id"))
-
-    parent = relationship("User", foreign_keys=[parent_id])
-
+    user = relationship("User", foreign_keys=[user_id], back_populates="student_profile")
+    parent = relationship("User", foreign_keys=[parent_id], back_populates="managed_children")
+    
+    # Links to sessions and enrollments
+    sessions = relationship("Session", back_populates="student_profile")
+    enrollments = relationship("Enrollment", back_populates="student_profile")
 
 class TutorProfile(Base):
     __tablename__ = "tutor_profiles"
@@ -49,6 +59,8 @@ class TutorProfile(Base):
     experience_years = Column(Integer)
     verified = Column(Boolean, default=False)
 
+    user = relationship("User", foreign_keys=[user_id])
+
 
 class ParentProfile(Base):
     __tablename__ = "parent_profiles"
@@ -56,6 +68,8 @@ class ParentProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     occupation = Column(String)
     last_report_sent_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ParentReportLog(Base):
@@ -72,10 +86,13 @@ class Enrollment(Base):
     __tablename__ = "enrollments"
 
     id = Column(Integer, primary_key=True)
-    student_id = Column(Integer, ForeignKey("users.id"))
-    tutor_id = Column(Integer, ForeignKey("users.id"))
+    student_profile_id = Column(Integer, ForeignKey("student_profiles.id")) # Changed from student_id
+    tutor_user_id = Column(Integer, ForeignKey("users.id")) # Changed from tutor_id
     start_date = Column(DateTime, default=datetime.utcnow)
     active = Column(Boolean, default=True)
+
+    student_profile = relationship("StudentProfile", back_populates="enrollments")
+    tutor = relationship("User", foreign_keys=[tutor_user_id])
 
 
 class Session(Base):
@@ -83,11 +100,14 @@ class Session(Base):
 
     id = Column(Integer, primary_key=True)
     tutor_id = Column(Integer, ForeignKey("users.id"))
-    student_id = Column(Integer, ForeignKey("users.id"))
+    student_profile_id = Column(Integer, ForeignKey("student_profiles.id")) # Link to profile, not user
     scheduled_at = Column(DateTime)
     duration_minutes = Column(Integer)
     topic = Column(String)
 
+    student_profile = relationship("StudentProfile", back_populates="sessions")
+    tutor = relationship("User", foreign_keys=[tutor_id])
+    
     attendance = relationship("Attendance", back_populates="session")
     report = relationship("Report", back_populates="session", uselist=False)
 
@@ -97,10 +117,12 @@ class Attendance(Base):
 
     id = Column(Integer, primary_key=True)
     session_id = Column(Integer, ForeignKey("sessions.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
+    # In attendance, we track which profile was present
+    student_profile_id = Column(Integer, ForeignKey("student_profiles.id"))
     status = Column(String)  # present / absent / late
 
     session = relationship("Session", back_populates="attendance")
+    student_profile = relationship("StudentProfile")
 
 
 class Report(Base):

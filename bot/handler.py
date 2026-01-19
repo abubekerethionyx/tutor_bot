@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from config import settings
-from bot.handlers import common, registration, session, report, parent
+from bot.handlers import common, registration, session, report, parent, attendance
 from services.scheduler_service import setup_scheduler
 
 # Configure logging
@@ -19,6 +19,7 @@ async def main():
     dp.include_router(session.router)
     dp.include_router(report.router)
     dp.include_router(parent.router)
+    dp.include_router(attendance.router)
 
     # Setup Scheduler
     setup_scheduler(bot)

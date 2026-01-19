@@ -4,7 +4,7 @@ from bot.states.parent import ParentStates
 from database.db import SessionLocal
 from services.user_service import UserService
 from services.session_service import SessionService
-from database.models import User, StudentProfile
+from database.models import User, StudentProfile, Session as TSession, Report
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from bot.keyboards.common import get_main_menu
 
@@ -23,62 +23,53 @@ async def process_child_name(message: types.Message, state: FSMContext):
     child_name = message.text.strip()
     db = SessionLocal()
     
-    # Find child user by name and role student
-    from database.models import UserRole
-    child = db.query(User).join(UserRole).filter(
-        User.full_name.ilike(child_name),
-        UserRole.role == "student"
-    ).first()
+    # Find child profile by name (supporting exact match for security)
+    profile = db.query(StudentProfile).filter(StudentProfile.full_name.ilike(child_name)).first()
     
-    if not child:
-        await message.answer("Student not found. 🧐\n\n1. Make sure your child has registered with the bot as a 'Student'.\n2. Ensure the name matches exactly.\n\nYou can also click 'Add New Student' in the main menu for instructions on how to register your child.")
+    if not profile:
+        await message.answer("Student profile not found. 🧐\n\n1. Make sure your child has registered as a 'Student'.\n2. Ensure the name matches exactly.\n\nYou can also click 'Add New Student' to create a profile for them directly.")
         db.close()
         return
         
-    # Get parent
+    # Get parent user
     parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
     
-    # Link in StudentProfile
-    profile = db.query(StudentProfile).filter(StudentProfile.user_id == child.id).first()
-    if profile:
-        profile.parent_id = parent.id
-        db.commit()
-        await message.answer(f"✅ Successfully linked to {child.full_name}!", reply_markup=get_main_menu("parent"))
-    else:
-        await message.answer("Could not find student profile. Please ask them to complete registration.")
-        
+    # Link the parent to this student profile
+    profile.parent_id = parent.id
+    db.commit()
+    
+    roles = [r.role for r in parent.roles]
+    await message.answer(f"✅ Successfully linked to {profile.full_name}!", reply_markup=get_main_menu(roles))
     db.close()
     await state.clear()
 
 @router.message(F.text == "My Children")
 async def my_children_handler(message: types.Message):
     db = SessionLocal()
-    parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    
-    children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == parent.id).all()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    children = UserService.get_managed_children(db, user.id)
     
     if not children:
         await message.answer("You haven't linked any children yet. Use 'Add New Student' to begin.")
     else:
         resp = "👶 *Your Registered Children:*\n\n"
         for child in children:
-            id_str = f"`{child.telegram_id}`" if child.telegram_id else "_Shared Account_"
-            resp += f"• {child.full_name} (ID: {id_str})\n"
+            status = "Self-managed" if child.user_id else "Managed by you"
+            resp += f"• {child.full_name} ({status})\n"
         await message.answer(resp, parse_mode="Markdown")
     db.close()
 
 @router.message(F.text == "Child Reports")
 async def child_reports_handler(message: types.Message):
     db = SessionLocal()
-    parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == parent.id).all()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    children = UserService.get_managed_children(db, user.id)
     
     if not children:
         await message.answer("You haven't linked any children yet.")
         db.close()
         return
 
-    # Use a builder to show list of children
     builder = ReplyKeyboardBuilder()
     builder.button(text="Reports for All Children")
     for child in children:
@@ -92,8 +83,8 @@ async def child_reports_handler(message: types.Message):
 @router.message(F.text == "Reports for All Children")
 async def show_all_children_reports(message: types.Message):
     db = SessionLocal()
-    parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == parent.id).all()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    children = UserService.get_managed_children(db, user.id)
     
     if not children:
         await message.answer("No children linked.")
@@ -103,9 +94,8 @@ async def show_all_children_reports(message: types.Message):
     resp = "📋 *Consolidated Reports for All Children:*\n\n"
     found_any = False
     
-    from database.models import Session as TSession, Report
     for child in children:
-        sessions = db.query(TSession).filter(TSession.student_id == child.id).join(Report).order_by(TSession.scheduled_at.desc()).limit(3).all()
+        sessions = db.query(TSession).filter(TSession.student_profile_id == child.id).join(Report).order_by(TSession.scheduled_at.desc()).limit(3).all()
         if sessions:
             found_any = True
             resp += f"👤 *{child.full_name}:*\n"
@@ -117,6 +107,37 @@ async def show_all_children_reports(message: types.Message):
         await message.answer("No recent reports found for any of your children.")
     else:
         await message.answer(resp, parse_mode="Markdown")
+    db.close()
+
+@router.message(F.text.startswith("Reports for "))
+async def show_child_reports(message: types.Message):
+    child_name = message.text.replace("Reports for ", "")
+    db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    
+    child = db.query(StudentProfile).filter(
+        StudentProfile.parent_id == user.id,
+        StudentProfile.full_name == child_name
+    ).first()
+    
+    if not child:
+        await message.answer("Child not found.")
+        db.close()
+        return
+        
+    sessions = SessionService.get_profile_sessions(db, child.id)
+    sessions_with_reports = [s for s in sessions if s.report]
+    
+    if not sessions_with_reports:
+        await message.answer(f"No reports found for {child_name}.")
+    else:
+        resp = f"📊 *Recent Reports for {child_name}:*\n\n"
+        for sess in sessions_with_reports[:5]:
+            resp += f"📅 *{sess.topic}* ({sess.scheduled_at.strftime('%Y-%m-%d')})\n"
+            resp += f"⭐ Score: {sess.report.performance_score}/10\n"
+            resp += f"📝 {sess.report.content}\n\n"
+        await message.answer(resp, parse_mode="Markdown")
+    
     db.close()
 
 @router.message(F.text == "Add New Student")
@@ -154,69 +175,20 @@ async def process_added_student_age(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     db = SessionLocal()
-    
-    # 1. Create a "Virtual" User for the child (no telegram_id)
-    # This allows the child to exist in our system for sessions/reports
-    from database.models import UserRole
-    child_user = User(
-        full_name=data['added_student_name'],
-        telegram_id=None # No separate telegram account
-    )
-    db.add(child_user)
-    db.commit()
-    db.refresh(child_user)
-    
-    # 2. Assign Student Role
-    role = UserRole(user_id=child_user.id, role="student")
-    db.add(role)
-    
-    # 3. Create Student Profile linked to this Parent
     parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    profile = StudentProfile(
-        user_id=child_user.id,
+    
+    # Create Student Profile linked to this Parent, but NO NEW USER RECORD
+    UserService.create_student_profile(
+        db,
+        full_name=data['added_student_name'],
         grade=data['added_student_grade'],
         school=data['added_student_school'],
         age=age,
         parent_id=parent.id
     )
-    db.add(profile)
-    db.commit()
     
     roles = [r.role for r in parent.roles]
-    await message.answer(f"🎉 Successfully registered and linked {child_user.full_name} to your account!", 
+    await message.answer(f"🎉 Successfully registered and linked {data['added_student_name']} to your account!", 
                          reply_markup=get_main_menu(roles))
     db.close()
     await state.clear()
-
-@router.message(F.text.startswith("Reports for "))
-async def show_child_reports(message: types.Message):
-    child_name = message.text.replace("Reports for ", "")
-    db = SessionLocal()
-    parent = UserService.get_user_by_telegram_id(db, message.from_user.id)
-    
-    # Find child by name and parent_id
-    child = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(
-        StudentProfile.parent_id == parent.id,
-        User.full_name == child_name
-    ).first()
-    
-    if not child:
-        await message.answer("Child not found.")
-        db.close()
-        return
-        
-    # Get last 5 sessions with reports
-    from database.models import Session as TSession, Report
-    sessions = db.query(TSession).filter(TSession.student_id == child.id).join(Report).order_by(TSession.scheduled_at.desc()).limit(5).all()
-    
-    if not sessions:
-        await message.answer(f"No reports found for {child_name}.")
-    else:
-        resp = f"📊 *Recent Reports for {child_name}:*\n\n"
-        for sess in sessions:
-            resp += f"📅 *{sess.topic}* ({sess.scheduled_at.strftime('%Y-%m-%d')})\n"
-            resp += f"⭐ Score: {sess.report.performance_score}/10\n"
-            resp += f"📝 {sess.report.content}\n\n"
-        await message.answer(resp, parse_mode="Markdown")
-    
-    db.close()

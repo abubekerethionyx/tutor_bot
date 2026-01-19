@@ -111,18 +111,19 @@ async def finish_registration(message: types.Message, state: FSMContext):
     # Create Profile
     if data['role'] == "student":
         UserService.create_student_profile(
-            db, user.id, data['grade'], data['school'], data['age']
+            db, 
+            user_id=user.id, 
+            full_name=user.full_name,
+            grade=data['grade'], 
+            school=data['school'], 
+            age=data['age']
         )
     elif data['role'] == "tutor":
         UserService.create_tutor_profile(
             db, user.id, data['subjects'], data['education'], data['experience_years']
         )
     elif data['role'] == "parent":
-        # Create parent profile
-        from database.models import ParentProfile
-        profile = ParentProfile(user_id=user.id, occupation=data['occupation'])
-        db.add(profile)
-        db.commit()
+        UserService.create_parent_profile(db, user.id, data['occupation'])
 
     db.refresh(user)
     roles = [r.role for r in user.roles]

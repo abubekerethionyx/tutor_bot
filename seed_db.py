@@ -1,5 +1,5 @@
 from database.db import SessionLocal
-from database.models import User, UserRole, StudentProfile, TutorProfile, Session as TSession, Report
+from database.models import User, UserRole, StudentProfile, TutorProfile, Session as TSession, Report, ParentProfile
 from datetime import datetime, timedelta
 import random
 
@@ -12,75 +12,95 @@ def seed_data():
         db.close()
         return
 
-    print("Seeding dummy data...")
+    print("Seeding advanced data model...")
     
-    # Create Students
-    for i in range(1, 6):
-        user = User(telegram_id=1000 + i, full_name=f"Student {i}", phone=f"+25191100000{i}")
-        db.add(user)
-        db.flush()
-        
-        role = UserRole(user_id=user.id, role="student")
-        db.add(role)
-        
-        profile = StudentProfile(
-            user_id=user.id, 
-            grade=f"Grade {random.randint(6, 12)}", 
-            school="Ethio Academy", 
-            age=12 + i
-        )
-        db.add(profile)
+    # 1. Create a Parent
+    parent_user = User(telegram_id=3000, full_name="John Doe (Parent)", phone="+251911111111")
+    db.add(parent_user)
+    db.flush()
+    db.add(UserRole(user_id=parent_user.id, role="parent"))
+    db.add(ParentProfile(user_id=parent_user.id, occupation="Engineer"))
+    
+    # 2. Create 2 Children for this Parent (Managed Students)
+    child1 = StudentProfile(
+        parent_id=parent_user.id,
+        full_name="Alice Doe",
+        grade="Grade 8",
+        school="Ethio Academy",
+        age=14
+    )
+    child2 = StudentProfile(
+        parent_id=parent_user.id,
+        full_name="Bob Doe",
+        grade="Grade 6",
+        school="Ethio Academy",
+        age=12
+    )
+    db.add(child1)
+    db.add(child2)
+    
+    # 3. Create a Self-Registered Student
+    student_user = User(telegram_id=1001, full_name="Charlie Brown", phone="+251922222222")
+    db.add(student_user)
+    db.flush()
+    db.add(UserRole(user_id=student_user.id, role="student"))
+    student_profile = StudentProfile(
+        user_id=student_user.id,
+        full_name=student_user.full_name,
+        grade="Grade 10",
+        school="Global School",
+        age=16
+    )
+    db.add(student_profile)
 
-    # Create Tutors
+    # 4. Create Tutors
+    tutors_list = []
     for i in range(1, 4):
-        user = User(telegram_id=2000 + i, full_name=f"Tutor {i}", phone=f"+25192200000{i}")
-        db.add(user)
+        tutor_user = User(telegram_id=2000 + i, full_name=f"Tutor Expert {i}", phone=f"+25193300000{i}")
+        db.add(tutor_user)
         db.flush()
-        
-        role = UserRole(user_id=user.id, role="tutor")
-        db.add(role)
-        
-        profile = TutorProfile(
-            user_id=user.id, 
-            subjects="Math, Physics, English", 
-            education="BSc in Engineering", 
-            experience_years=i + 2,
+        db.add(UserRole(user_id=tutor_user.id, role="tutor"))
+        t_profile = TutorProfile(
+            user_id=tutor_user.id,
+            subjects="Mathematics, Science",
+            education="MSc in Education",
+            experience_years=5+i,
             verified=True
         )
-        db.add(profile)
+        db.add(t_profile)
+        tutors_list.append(tutor_user)
 
     db.commit()
 
-    # Create Sessions and Reports
-    students = db.query(User).join(UserRole).filter(UserRole.role == "student").all()
-    tutors = db.query(User).join(UserRole).filter(UserRole.role == "tutor").all()
-
+    # 5. Create Sessions and Reports
+    all_profiles = [child1, child2, student_profile]
+    
     for i in range(10):
-        student = random.choice(students)
-        tutor = random.choice(tutors)
+        profile = random.choice(all_profiles)
+        tutor = random.choice(tutors_list)
         
         session = TSession(
             tutor_id=tutor.id,
-            student_id=student.id,
+            student_profile_id=profile.id,
             scheduled_at=datetime.utcnow() - timedelta(days=random.randint(0, 30), hours=random.randint(0, 23)),
-            duration_minutes=random.choice([60, 90, 120]),
-            topic=random.choice(["Algebra Basics", "Quantum Physics", "Shakespeare Intro", "Calculus I"])
+            duration_minutes=60,
+            topic=random.choice(["Algebra Basics", "Science Experiment", "Language Study"])
         )
         db.add(session)
         db.flush()
         
-        if random.random() > 0.3: # 70% chance of having a report
+        if random.random() > 0.3:
             report = Report(
                 session_id=session.id,
                 tutor_id=tutor.id,
-                content="The student is progressing well but needs more practice on problem solving.",
-                performance_score=random.randint(6, 10),
-                created_at=session.scheduled_at + timedelta(hours=2)
+                content="Great progress today.",
+                performance_score=random.randint(7, 10),
+                created_at=session.scheduled_at + timedelta(hours=1)
             )
             db.add(report)
 
     db.commit()
-    print("Seeding complete!")
+    print("Advanced Seeding complete!")
     db.close()
 
 if __name__ == "__main__":

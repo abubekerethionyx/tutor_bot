@@ -84,7 +84,7 @@ def create_session(session: schemas.SessionCreate, db: Session = Depends(get_db)
     return SessionService.create_session(
         db, 
         session.tutor_id, 
-        session.student_id, 
+        session.student_profile_id, 
         session.scheduled_at, 
         session.duration_minutes, 
         session.topic
@@ -92,7 +92,22 @@ def create_session(session: schemas.SessionCreate, db: Session = Depends(get_db)
 
 @app.get("/sessions/user/{user_id}", response_model=List[schemas.SessionResponse])
 def get_user_sessions(user_id: int, role: str = Query("student"), db: Session = Depends(get_db)):
-    return SessionService.get_user_sessions(db, user_id, role)
+    results = SessionService.get_user_sessions(db, user_id, role)
+    # Convert to schema compatible format
+    sessions = []
+    for s in results:
+        tutor = db.query(models.User).filter(models.User.id == s.tutor_id).first()
+        sessions.append(schemas.SessionResponse(
+            id=s.id,
+            tutor_id=s.tutor_id,
+            student_profile_id=s.student_profile_id,
+            tutor_name=tutor.full_name if tutor else "Unknown",
+            student_name=s.student_profile.full_name if s.student_profile else "Unknown",
+            scheduled_at=s.scheduled_at,
+            duration_minutes=s.duration_minutes,
+            topic=s.topic
+        ))
+    return sessions
 
 # --- Admin Routes ---
 
@@ -128,14 +143,16 @@ def verify_tutor(
         raise HTTPException(status_code=404, detail="Tutor not found")
     return {"message": "Tutor status updated"}
 
-@app.get("/admin/users/{user_id}/sessions")
-def get_user_sessions_admin(
-    user_id: int,
-    role: str = Query("student", enum=["student", "tutor"]),
-    db: Session = Depends(get_db),
-    admin: str = Depends(verify_admin)
-):
-    return AdminService.get_user_sessions_detailed(db, user_id, role)
+# Temporarily disabled - needs refactoring for profile-based architecture
+# @app.get("/admin/users/{user_id}/sessions")
+# def get_user_sessions_admin(
+#     user_id: int,
+#     role: str = Query("student", enum=["student", "tutor"]),
+#     db: Session = Depends(get_db),
+#     admin: str = Depends(verify_admin)
+# ):
+#     # TODO: Implement profile-aware session lookup
+#     return []
 
 @app.get("/admin/reports")
 def get_all_reports_admin(

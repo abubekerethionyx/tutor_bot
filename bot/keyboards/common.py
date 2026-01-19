@@ -28,6 +28,10 @@ def get_main_menu(roles: list[str] = None):
         types.KeyboardButton(text="My Sessions")
     )
     
+    # Student specific
+    if "student" in roles and "tutor" not in roles and "parent" not in roles:
+        builder.row(types.KeyboardButton(text="My Attendance"))
+    
     # Tutor specific
     if "tutor" in roles:
         builder.row(
@@ -46,12 +50,9 @@ def get_main_menu(roles: list[str] = None):
             types.KeyboardButton(text="Child Reports")
         )
     
-    # Only show 'Register as' if they aren't a parent yet
-    if "parent" not in roles:
-        all_roles = ["student", "tutor", "parent"]
-        for r in all_roles:
-            if r not in roles:
-                builder.row(types.KeyboardButton(text=f"Register as {r.capitalize()}"))
+    # Only students can register as parents. Tutors and Parents have their own portals.
+    if "parent" not in roles and "student" in roles and "tutor" not in roles:
+        builder.row(types.KeyboardButton(text="Register as Parent"))
         
     builder.row(
         types.KeyboardButton(text="Back"),

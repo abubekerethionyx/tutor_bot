@@ -3,8 +3,10 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from database.db import SessionLocal
 from services.user_service import UserService
+from services.session_service import SessionService
 from bot.states.registration import RegistrationStates
 from bot.keyboards.common import get_role_keyboard, get_main_menu
+from database.models import User, StudentProfile, Enrollment
 
 router = Router()
 
@@ -93,8 +95,7 @@ async def profile_handler(message: types.Message):
                  response_parts.append(f"School: {student_profile.school}")
                  response_parts.append(f"Age: {student_profile.age}")
                  
-                 from services.session_service import SessionService
-                 enrollments = SessionService.get_enrollments_for_student(db, user.id)
+                 enrollments = SessionService.get_enrollments_for_student_profile(db, student_profile.id)
                  response_parts.append(f"Enrolled Tutors: {len(enrollments)}")
                  
                  sessions = SessionService.get_user_sessions(db, user.id, "student")
@@ -110,7 +111,6 @@ async def profile_handler(message: types.Message):
                  status = "✅ Verified" if tutor_profile.verified else "⏳ Pending Verification"
                  response_parts.append(f"Status: {status}")
                  
-                 from services.session_service import SessionService
                  enrollments = SessionService.get_enrollments_for_tutor(db, user.id)
                  response_parts.append(f"Total Students: {len(enrollments)}")
                  
@@ -122,10 +122,14 @@ async def profile_handler(message: types.Message):
              if parent_profile:
                  response_parts.append(f"\n👪 *Parent Info*")
                  response_parts.append(f"Occupation: {parent_profile.occupation}")
+                 
+                 children = UserService.get_managed_children(db, user.id)
+                 response_parts.append(f"Managed Children: {len(children)}")
 
         await message.answer("\n".join(response_parts), parse_mode="Markdown")
     
     db.close()
+
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 @router.message(F.text == "Search Tutors")
@@ -170,7 +174,6 @@ async def enroll_callback(callback: types.CallbackQuery):
     tutor_id = int(callback.data.split("_")[1])
     db = SessionLocal()
     
-    # Get current user
     user = UserService.get_user_by_telegram_id(db, callback.from_user.id)
     if not user:
         await callback.answer("Please register first!", show_alert=True)
@@ -179,17 +182,13 @@ async def enroll_callback(callback: types.CallbackQuery):
 
     roles = [r.role for r in user.roles]
     
-    # If the user is a parent, ask which child to enroll
     if "parent" in roles:
-        from database.models import StudentProfile
-        children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == user.id).all()
-        
+        children = UserService.get_managed_children(db, user.id)
         if not children:
-            await callback.answer("You haven't added any children yet. Go to the main menu and use 'Add New Student'.", show_alert=True)
+            await callback.answer("Register your child first using 'Add New Student'.", show_alert=True)
             db.close()
             return
 
-        # Show inline buttons for children
         builder = InlineKeyboardBuilder()
         for child in children:
             builder.button(text=child.full_name, callback_data=f"childenroll_{tutor_id}_{child.id}")
@@ -200,11 +199,15 @@ async def enroll_callback(callback: types.CallbackQuery):
         db.close()
         return
 
-    # Standard student enrollment
-    from services.session_service import SessionService
+    # User is a student
+    profile = UserService.get_student_profile(db, user.id)
+    if not profile:
+        await callback.answer("You must be registered as a student to enroll.", show_alert=True)
+        db.close()
+        return
+
     try:
-        SessionService.enroll_student(db, user.id, tutor_id)
-        await callback.message.edit_reply_markup(reply_markup=None)
+        SessionService.enroll_student(db, profile.id, tutor_id)
         await callback.message.answer("🎉 Successfully enrolled! The tutor will contact you soon.")
         await callback.answer()
     except Exception as e:
@@ -214,18 +217,14 @@ async def enroll_callback(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("childenroll_"))
 async def handle_child_enrollment(callback: types.CallbackQuery):
-    # format: childenroll_tutorid_childid
     parts = callback.data.split("_")
     tutor_id = int(parts[1])
-    child_id = int(parts[2])
+    child_profile_id = int(parts[2])
     
     db = SessionLocal()
-    from services.session_service import SessionService
     try:
-        SessionService.enroll_student(db, child_id, tutor_id)
-        # Find child name for confirmation
-        from database.models import User
-        child = db.query(User).filter(User.id == child_id).first()
+        SessionService.enroll_student(db, child_profile_id, tutor_id)
+        child = db.query(StudentProfile).filter(StudentProfile.id == child_profile_id).first()
         child_name = child.full_name if child else "your child"
         
         await callback.message.edit_text(f"🎉 Successfully enrolled **{child_name}** with the tutor!", parse_mode="Markdown")
@@ -241,33 +240,68 @@ async def my_sessions_handler(message: types.Message):
     user = UserService.get_user_by_telegram_id(db, message.from_user.id)
     
     if user:
-        # Determine primary role for session lookup
         roles = [r.role for r in user.roles]
-        role = "tutor" if "tutor" in roles else "student"
+        primary_role = "tutor" if "tutor" in roles else ("parent" if "parent" in roles else "student")
         
-        from services.session_service import SessionService
-        sessions = SessionService.get_user_sessions(db, user.id, role)
-        
-        if not sessions:
-            await message.answer("You have no upcoming sessions.")
+        if primary_role == "parent":
+            children = UserService.get_managed_children(db, user.id)
+            if not children:
+                await message.answer("No children linked.")
+                db.close()
+                return
+            
+            response = "📅 *Family Sessions:*\n\n"
+            found = False
+            for child in children:
+                sessions = SessionService.get_profile_sessions(db, child.id)
+                if sessions:
+                    found = True
+                    response += f"👶 *{child.full_name}:*\n"
+                    for sess in sessions:
+                        tutor = db.query(User).filter(User.id == sess.tutor_id).first()
+                        tutor_name = tutor.full_name if tutor else "Unknown"
+                        response += f"• {sess.topic} w/ {tutor_name} ({sess.scheduled_at.strftime('%Y-%m-%d %H:%M')})\n"
+                    response += "\n"
+            
+            if not found:
+                await message.answer("No upcoming sessions for your family.")
+            else:
+                await message.answer(response, parse_mode="Markdown")
         else:
-            from database.models import User
-            response = "📅 *Your Sessions:*\n\n"
-            for sess in sessions:
-                other_user_id = sess.student_id if role == "tutor" else sess.tutor_id
-                other_user = db.query(User).filter(User.id == other_user_id).first()
-                with_name = other_user.full_name if other_user else "Unknown"
-                
-                label = "Student" if role == "tutor" else "Tutor"
-                response += (
-                    f"🔹 *{sess.topic}*\n"
-                    f"👤 {label}: {with_name}\n"
-                    f"⏰ {sess.scheduled_at.strftime('%Y-%m-%d %H:%M')}\n"
-                    f"⏳ {sess.duration_minutes} min\n\n"
-                )
-            await message.answer(response, parse_mode="Markdown")
+            sessions = SessionService.get_user_sessions(db, user.id, primary_role)
+            if not sessions:
+                await message.answer("You have no upcoming sessions.")
+            else:
+                response = "📅 *Your Sessions:*\n\n"
+                for sess in sessions:
+                    with_name = ""
+                    if primary_role == "tutor":
+                        with_name = sess.student_profile.full_name if sess.student_profile else "Unknown"
+                    else:
+                        tutor = db.query(User).filter(User.id == sess.tutor_id).first()
+                        with_name = tutor.full_name if tutor else "Unknown"
+                    
+                    label = "Student" if primary_role == "tutor" else "Tutor"
+                    response += (
+                        f"🔹 *{sess.topic}*\n"
+                        f"👤 {label}: {with_name}\n"
+                        f"⏰ {sess.scheduled_at.strftime('%Y-%m-%d %H:%M')}\n"
+                        f"⏳ {sess.duration_minutes} min\n\n"
+                    )
+                await message.answer(response, parse_mode="Markdown")
     else:
         await message.answer("Please register first.")
     db.close()
 
-    db.close()
+@router.message(F.text == "Help")
+async def help_handler(message: types.Message):
+    help_text = (
+        "❓ *Tutormula Help Guide*\n\n"
+        "🏠 *Main Menu*: Access your profile, search tutors, and manage sessions.\n\n"
+        "🎓 *For Students*: Find tutors, enroll in courses, and track your sessions.\n\n"
+        "👨‍🏫 *For Tutors*: Create session reports, manage your students, and view your schedule.\n\n"
+        "👪 *For Parents*: Link your children's profiles or create profiles for them. View their progress reports instantly.\n\n"
+        "🔙 *Back*: Use the Back button to return to the main menu from any sub-state.\n\n"
+        "📞 *Support*: If you encounter any issues, please contact our support team at @support_handle."
+    )
+    await message.answer(help_text, parse_mode="Markdown")

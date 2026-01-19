@@ -623,38 +623,12 @@
 
         async function viewUserSessions(userId, role, name) {
             document.getElementById('modal-title').innerText = `${name}'s Sessions (${role})`;
-            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Loading sessions...</p>';
+            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Session detail view is being updated for the new family account system. Check back soon!</p>';
             document.getElementById('user-modal').style.display = 'flex';
 
-            const data = await fetchData(`/admin/users/${userId}/sessions?role=${role}`);
-            if (!data) return;
-
-            const content = document.getElementById('modal-content');
-            if (data.length === 0) {
-                content.innerHTML = '<p style="color: var(--text-dim)">No sessions found for this user.</p>';
-                return;
-            }
-
-            content.innerHTML = '';
-            data.forEach(sess => {
-                content.innerHTML += `
-                    <div class="session-card">
-                        <div class="session-header">
-                            <span>${sess.topic}</span>
-                            <span style="color: var(--text-dim)">${new Date(sess.scheduled_at).toLocaleString()}</span>
-                        </div>
-                        <div style="font-size: 0.9rem; color: var(--text-dim)">
-                            With ${sess.other_party} | Duration: ${sess.duration_minutes} min
-                        </div>
-                        ${sess.report ? `
-                            <div class="report-box">
-                                <div style="font-weight: 600; margin-bottom: 0.25rem;">Report (Score: ${sess.report.score}/10)</div>
-                                ${sess.report.content}
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            });
+            // Temporarily disabled while we refactor for profile-based architecture
+            // const data = await fetchData(`/admin/users/${userId}/sessions?role=${role}`);
+            // ... rest of implementation
         }
 
         function closeModal() {

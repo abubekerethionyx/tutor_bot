@@ -36,37 +36,45 @@ async def create_session_start(message: types.Message, state: FSMContext):
             return
         
         for enr in enrollments:
-            student = db.query(User).filter(User.id == enr.student_id).first()
-            if student:
-                builder.button(text=f"Student: {student.full_name} (ID: {student.id})")
+            profile = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
+            if profile:
+                builder.button(text=f"Student Profile: {profile.full_name} (ID: {profile.id})")
         
-        prompt = "Which student is this session for?"
+        prompt = "Which student profile is this session for?"
     
     elif is_student:
-        enrollments = SessionService.get_enrollments_for_student(db, user.id)
+        # User is a student, find their own profile
+        profile = UserService.get_student_profile(db, user.id)
+        if not profile:
+            await message.answer("Student profile not found.")
+            db.close()
+            return
+            
+        enrollments = SessionService.get_enrollments_for_student_profile(db, profile.id)
         if not enrollments:
             await message.answer("You don't have any enrolled tutors yet. Search and enroll first!")
             db.close()
             return
             
         for enr in enrollments:
-            tutor = db.query(User).filter(User.id == enr.tutor_id).first()
+            tutor = db.query(User).filter(User.id == enr.tutor_user_id).first()
             if tutor:
                 builder.button(text=f"Tutor: {tutor.full_name} (ID: {tutor.id})")
         
         prompt = "Which tutor is this session for?"
+        await state.update_data(student_profile_id=profile.id)
     
     elif is_parent:
-        children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == user.id).all()
+        children = UserService.get_managed_children(db, user.id)
         if not children:
             await message.answer("You haven't linked any children yet. Link a child first to create sessions for them.")
             db.close()
             return
             
         for child in children:
-            builder.button(text=f"For Child: {child.full_name} (ID: {child.id})")
+            builder.button(text=f"For Child Profile: {child.full_name} (ID: {child.id})")
         
-        prompt = "Which child are you creating this session for?"
+        prompt = "Which child profile are you creating this session for?"
         
     else:
         await message.answer("Only students, tutors, and parents can create sessions.")
@@ -87,11 +95,10 @@ async def process_student_pick(message: types.Message, state: FSMContext):
     data = await state.get_data()
     db = SessionLocal()
     
-    if message.text.startswith("For Child:"):
-        # Parent chose a child, now need to choose a tutor for that child
+    if message.text.startswith("For Child Profile:"):
         try:
-            child_id = int(message.text.split("ID: ")[1].replace(")", ""))
-            enrollments = SessionService.get_enrollments_for_student(db, child_id)
+            profile_id = int(message.text.split("ID: ")[1].replace(")", ""))
+            enrollments = SessionService.get_enrollments_for_student_profile(db, profile_id)
             
             if not enrollments:
                 await message.answer("This child has no enrolled tutors. Please enroll them first.")
@@ -100,18 +107,18 @@ async def process_student_pick(message: types.Message, state: FSMContext):
                 
             builder = ReplyKeyboardBuilder()
             for enr in enrollments:
-                tutor = db.query(User).filter(User.id == enr.tutor_id).first()
+                tutor = db.query(User).filter(User.id == enr.tutor_user_id).first()
                 if tutor:
                     builder.button(text=f"Tutor: {tutor.full_name} (ID: {tutor.id})")
             
             builder.adjust(1)
             builder.button(text="Back")
             await message.answer("Which tutor is this session with?", reply_markup=builder.as_markup(resize_keyboard=True))
-            await state.update_data(student_id=child_id)
+            await state.update_data(student_profile_id=profile_id)
             db.close()
             return
         except (IndexError, ValueError):
-            await message.answer("Please pick a child from the keyboard.")
+            await message.answer("Please pick a profile from the keyboard.")
             db.close()
             return
 
@@ -120,11 +127,11 @@ async def process_student_pick(message: types.Message, state: FSMContext):
         other_id = int(message.text.split("ID: ")[1].replace(")", ""))
         
         if data['user_role'] == "tutor":
-            await state.update_data(student_id=other_id, tutor_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
+            await state.update_data(student_profile_id=other_id, tutor_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
         elif data['user_role'] == "student":
-            await state.update_data(tutor_id=other_id, student_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
+            await state.update_data(tutor_id=other_id)
+            # student_profile_id already set in create_session_start
         elif data['user_role'] == "parent":
-            # If we reach here, it means we already picked a child and now we picked a tutor
             await state.update_data(tutor_id=other_id)
             
         await message.answer("What is the topic of the session?", reply_markup=types.ReplyKeyboardRemove())
@@ -156,31 +163,22 @@ async def process_duration(message: types.Message, state: FSMContext):
         data = await state.get_data()
         
         db = SessionLocal()
-        data = await state.get_data()
         
-        if data['user_role'] == "parent":
-            tutor_id = data['tutor_id']
-            student_id = data['student_id']
-        elif data['user_role'] == "tutor":
-            user = UserService.get_user_by_telegram_id(db, message.from_user.id)
-            tutor_id = user.id
-            student_id = data['student_id'] # Note: need to make sure this is set correctly in previous step
-        else: # student
-            user = UserService.get_user_by_telegram_id(db, message.from_user.id)
-            tutor_id = data['tutor_id']
-            student_id = user.id
+        tutor_id = data.get('tutor_id')
+        student_profile_id = data.get('student_profile_id')
 
         SessionService.create_session(
             db=db,
             tutor_id=tutor_id,
-            student_id=student_id,
+            student_profile_id=student_profile_id,
             scheduled_at=datetime.fromisoformat(data['scheduled_at']),
             duration_minutes=duration,
             topic=data['topic']
         )
         db.close()
         
-        roles = [r.role for r in UserService.get_user_by_telegram_id(SessionLocal(), message.from_user.id).roles]
+        user = UserService.get_user_by_telegram_id(SessionLocal(), message.from_user.id)
+        roles = [r.role for r in user.roles]
         await message.answer("✅ Session created successfully!", reply_markup=get_main_menu(roles))
         await state.clear()
     except ValueError:
@@ -198,11 +196,10 @@ async def my_students_handler(message: types.Message):
     if not enrollments:
         await message.answer("You have no enrolled students.")
     else:
-        from database.models import User
-        resp = "👥 *Your Students:*\n\n"
+        resp = "👥 *Your Students (by Profile):*\n\n"
         for enr in enrollments:
-            student = db.query(User).filter(User.id == enr.student_id).first()
-            if student:
-                resp += f"🔹 {student.full_name}\n"
+            profile = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
+            if profile:
+                resp += f"🔹 {profile.full_name} (Grade {profile.grade})\n"
         await message.answer(resp, parse_mode="Markdown")
     db.close()

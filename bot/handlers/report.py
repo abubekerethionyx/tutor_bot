@@ -19,7 +19,7 @@ async def create_report_start(message: types.Message, state: FSMContext):
         db.close()
         return
 
-    # Get recent sessions for this tutor (e.g., past 7 days or just all)
+    # Get recent sessions for this tutor
     sessions = SessionService.get_user_sessions(db, user.id, "tutor")
     if not sessions:
         await message.answer("You have no sessions to report on.")
@@ -28,7 +28,9 @@ async def create_report_start(message: types.Message, state: FSMContext):
 
     builder = ReplyKeyboardBuilder()
     for sess in sessions:
-        builder.button(text=f"{sess.topic} (ID: {sess.id})")
+        # Show student name from profile
+        student_name = sess.student_profile.full_name if sess.student_profile else "Unknown"
+        builder.button(text=f"{sess.topic} with {student_name} (ID: {sess.id})")
     
     builder.adjust(1)
     builder.button(text="Back")
@@ -62,18 +64,20 @@ async def process_score(message: types.Message, state: FSMContext):
             
         data = await state.get_data()
         db = SessionLocal()
-        tutor = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        user = UserService.get_user_by_telegram_id(db, message.from_user.id)
         
         SessionService.create_report(
             db=db,
             session_id=data['session_id'],
-            tutor_id=tutor.id,
+            tutor_id=user.id,
             content=data['content'],
             performance_score=score
         )
+        
+        roles = [r.role for r in user.roles]
         db.close()
         
-        await message.answer("✅ Report created successfully!", reply_markup=get_main_menu("tutor"))
+        await message.answer("✅ Report created successfully!", reply_markup=get_main_menu(roles))
         await state.clear()
     except ValueError:
         await message.answer("Please enter a valid number (1-10).")
