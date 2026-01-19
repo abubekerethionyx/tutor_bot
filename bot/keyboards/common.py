@@ -24,7 +24,6 @@ def get_main_menu(roles: list[str] = None):
     
     # Session Management
     builder.row(
-        types.KeyboardButton(text="Create Session"),
         types.KeyboardButton(text="My Sessions")
     )
     
@@ -35,8 +34,12 @@ def get_main_menu(roles: list[str] = None):
     # Tutor specific
     if "tutor" in roles:
         builder.row(
-            types.KeyboardButton(text="Create Report"),
+            types.KeyboardButton(text="Create Session"),
             types.KeyboardButton(text="My Students")
+        )
+        builder.row(
+            types.KeyboardButton(text="Create Report"),
+            types.KeyboardButton(text="Mark Attendance")
         )
         
     # Parent specific
@@ -47,7 +50,8 @@ def get_main_menu(roles: list[str] = None):
         )
         builder.row(
             types.KeyboardButton(text="My Children"),
-            types.KeyboardButton(text="Child Reports")
+            types.KeyboardButton(text="Child Reports"),
+            types.KeyboardButton(text="My Attendance")
         )
     
     # Only students can register as parents. Tutors and Parents have their own portals.

@@ -21,73 +21,31 @@ async def create_session_start(message: types.Message, state: FSMContext):
         db.close()
         return
 
-    roles = [r.role for r in user.roles]
-    is_tutor = "tutor" in roles
-    is_student = "student" in roles
-    is_parent = "parent" in roles
-    
-    builder = ReplyKeyboardBuilder()
-    
-    if is_tutor:
-        enrollments = SessionService.get_enrollments_for_tutor(db, user.id)
-        if not enrollments:
-            await message.answer("You don't have any enrolled students yet.")
-            db.close()
-            return
-        
-        for enr in enrollments:
-            profile = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
-            if profile:
-                builder.button(text=f"Student Profile: {profile.full_name} (ID: {profile.id})")
-        
-        prompt = "Which student profile is this session for?"
-    
-    elif is_student:
-        # User is a student, find their own profile
-        profile = UserService.get_student_profile(db, user.id)
-        if not profile:
-            await message.answer("Student profile not found.")
-            db.close()
-            return
-            
-        enrollments = SessionService.get_enrollments_for_student_profile(db, profile.id)
-        if not enrollments:
-            await message.answer("You don't have any enrolled tutors yet. Search and enroll first!")
-            db.close()
-            return
-            
-        for enr in enrollments:
-            tutor = db.query(User).filter(User.id == enr.tutor_user_id).first()
-            if tutor:
-                builder.button(text=f"Tutor: {tutor.full_name} (ID: {tutor.id})")
-        
-        prompt = "Which tutor is this session for?"
-        await state.update_data(student_profile_id=profile.id)
-    
-    elif is_parent:
-        children = UserService.get_managed_children(db, user.id)
-        if not children:
-            await message.answer("You haven't linked any children yet. Link a child first to create sessions for them.")
-            db.close()
-            return
-            
-        for child in children:
-            builder.button(text=f"For Child Profile: {child.full_name} (ID: {child.id})")
-        
-        prompt = "Which child profile are you creating this session for?"
-        
-    else:
-        await message.answer("Only students, tutors, and parents can create sessions.")
+    if not any(r.role == "tutor" for r in user.roles):
+        await message.answer("Only tutors can create sessions.")
         db.close()
         return
 
+    builder = ReplyKeyboardBuilder()
+    
+    enrollments = SessionService.get_enrollments_for_tutor(db, user.id)
+    if not enrollments:
+        await message.answer("You don't have any enrolled students yet.")
+        db.close()
+        return
+    
+    for enr in enrollments:
+        profile = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
+        if profile:
+            builder.button(text=f"Student Profile: {profile.full_name} (ID: {profile.id})")
+    
+    prompt = "Which student profile is this session for?"
+    
     builder.adjust(1)
     builder.button(text="Back")
     await message.answer(prompt, reply_markup=builder.as_markup(resize_keyboard=True))
     await state.set_state(SessionStates.waiting_for_student_pick)
-    
-    role_flag = "tutor" if is_tutor else ("student" if is_student else "parent")
-    await state.update_data(user_role=role_flag)
+    await state.update_data(user_role="tutor")
     db.close()
 
 @router.message(SessionStates.waiting_for_student_pick)
@@ -95,49 +53,31 @@ async def process_student_pick(message: types.Message, state: FSMContext):
     data = await state.get_data()
     db = SessionLocal()
     
-    if message.text.startswith("For Child Profile:"):
-        try:
-            profile_id = int(message.text.split("ID: ")[1].replace(")", ""))
-            enrollments = SessionService.get_enrollments_for_student_profile(db, profile_id)
-            
-            if not enrollments:
-                await message.answer("This child has no enrolled tutors. Please enroll them first.")
-                db.close()
-                return
-                
-            builder = ReplyKeyboardBuilder()
-            for enr in enrollments:
-                tutor = db.query(User).filter(User.id == enr.tutor_user_id).first()
-                if tutor:
-                    builder.button(text=f"Tutor: {tutor.full_name} (ID: {tutor.id})")
-            
-            builder.adjust(1)
-            builder.button(text="Back")
-            await message.answer("Which tutor is this session with?", reply_markup=builder.as_markup(resize_keyboard=True))
-            await state.update_data(student_profile_id=profile_id)
-            db.close()
-            return
-        except (IndexError, ValueError):
-            await message.answer("Please pick a profile from the keyboard.")
-            db.close()
-            return
+    if message.text == "Back":
+        await message.answer("Main Menu", reply_markup=get_main_menu(["tutor"])) # simplified fallback
+        await state.clear()
+        db.close()
+        return
 
-    # Standard flow for tutors/students
     try:
+        # Expected format: "Student Profile: Name (ID: 123)"
         other_id = int(message.text.split("ID: ")[1].replace(")", ""))
         
-        if data['user_role'] == "tutor":
-            await state.update_data(student_profile_id=other_id, tutor_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
-        elif data['user_role'] == "student":
-            await state.update_data(tutor_id=other_id)
-            # student_profile_id already set in create_session_start
-        elif data['user_role'] == "parent":
-            await state.update_data(tutor_id=other_id)
+        # User is always tutor here
+        tutor = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        if hasattr(tutor, 'id'):
+             await state.update_data(student_profile_id=other_id, tutor_id=tutor.id)
+        else:
+             # Just in case
+             await message.answer("Error finding your user.")
+             db.close()
+             return
             
         await message.answer("What is the topic of the session?", reply_markup=types.ReplyKeyboardRemove())
         await state.set_state(SessionStates.waiting_for_topic)
-    except (IndexError, ValueError):
-        await message.answer("Please pick a person from the keyboard.")
+    except (IndexError, ValueError, AttributeError):
+        await message.answer("Please pick a student from the keyboard.")
+    
     db.close()
 
 @router.message(SessionStates.waiting_for_topic)
