@@ -98,11 +98,15 @@ def get_user_sessions(user_id: int, role: str = Query("student"), db: Session = 
 
 @app.get("/admin/students", response_model=List[schemas.AdminStudentDetail])
 def get_admin_students(db: Session = Depends(get_db), admin: str = Depends(verify_admin)):
-    return AdminService.get_student_details(db)
+    return AdminService.get_all_students(db)
 
 @app.get("/admin/tutors", response_model=List[schemas.AdminTutorDetail])
 def get_admin_tutors(db: Session = Depends(get_db), admin: str = Depends(verify_admin)):
-    return AdminService.get_tutor_details(db)
+    return AdminService.get_all_tutors(db)
+
+@app.get("/admin/parents", response_model=List[schemas.AdminParentDetail])
+def get_admin_parents(db: Session = Depends(get_db), admin: str = Depends(verify_admin)):
+    return AdminService.get_all_parents(db)
 
 @app.get("/admin/reports/sessions", response_model=schemas.SessionReportSummary)
 def get_admin_session_report(
@@ -132,3 +136,27 @@ def get_user_sessions_admin(
     admin: str = Depends(verify_admin)
 ):
     return AdminService.get_user_sessions_detailed(db, user_id, role)
+
+@app.get("/admin/reports")
+def get_all_reports_admin(
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    return AdminService.get_all_reports(db)
+
+@app.get("/admin/settings")
+def get_settings_admin(
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    return AdminService.get_settings(db)
+
+@app.post("/admin/settings/{key}")
+def update_setting_admin(
+    key: str,
+    value: str = Query(...),
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    AdminService.update_setting(db, key, value)
+    return {"message": f"Setting {key} updated"}

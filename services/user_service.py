@@ -13,6 +13,13 @@ class UserService:
 
     @staticmethod
     def create_user(db: Session, telegram_id: int, full_name: str, phone: str = None) -> User:
+        existing = UserService.get_user_by_telegram_id(db, telegram_id)
+        if existing:
+            if full_name: existing.full_name = full_name
+            if phone: existing.phone = phone
+            db.commit()
+            return existing
+            
         user = User(telegram_id=telegram_id, full_name=full_name, phone=phone)
         db.add(user)
         db.commit()
@@ -21,6 +28,10 @@ class UserService:
 
     @staticmethod
     def assign_role(db: Session, user_id: int, role: str) -> UserRole:
+        existing = db.query(UserRole).filter(UserRole.user_id == user_id, UserRole.role == role).first()
+        if existing:
+            return existing
+            
         user_role = UserRole(user_id=user_id, role=role)
         db.add(user_role)
         db.commit()

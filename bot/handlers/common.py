@@ -1,5 +1,5 @@
 from aiogram import Router, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from database.db import SessionLocal
 from services.user_service import UserService
@@ -7,6 +7,45 @@ from bot.states.registration import RegistrationStates
 from bot.keyboards.common import get_role_keyboard, get_main_menu
 
 router = Router()
+
+@router.message(F.text == "Back", StateFilter("*"))
+async def back_to_menu(message: types.Message, state: FSMContext):
+    await state.clear()
+    db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    db.close()
+    
+    if user:
+        roles = [r.role for r in user.roles]
+        await message.answer("Main Menu:", reply_markup=get_main_menu(roles))
+    else:
+        await message.answer("Please register:", reply_markup=get_role_keyboard())
+
+@router.message(F.text.startswith("Register as "))
+async def register_role_handler(message: types.Message, state: FSMContext):
+    new_role = message.text.replace("Register as ", "").lower()
+    await state.update_data(role=new_role)
+    
+    db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    db.close()
+    
+    if user:
+        # User exists, skip name/phone and go to role-specific questions
+        await state.update_data(full_name=user.full_name, phone=user.phone)
+        if new_role == "student":
+            await message.answer("Which grade are you in?", reply_markup=types.ReplyKeyboardRemove())
+            await state.set_state(RegistrationStates.waiting_for_grade)
+        elif new_role == "tutor":
+            await message.answer("Which subjects do you teach?", reply_markup=types.ReplyKeyboardRemove())
+            await state.set_state(RegistrationStates.waiting_for_subjects)
+        elif new_role == "parent":
+            await message.answer("What is your occupation?", reply_markup=types.ReplyKeyboardRemove())
+            await state.set_state(RegistrationStates.waiting_for_occupation)
+    else:
+        # New user flow
+        await message.answer(f"Great! You are registering as a {new_role.capitalize()}. What is your full name?", reply_markup=types.ReplyKeyboardRemove())
+        await state.set_state(RegistrationStates.waiting_for_full_name)
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -22,10 +61,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await state.set_state(RegistrationStates.waiting_for_role)
     else:
         roles = [r.role for r in user.roles]
-        role = "tutor" if "tutor" in roles else ("parent" if "parent" in roles else "student")
         await message.answer(
             f"Welcome back, {user.full_name}!",
-            reply_markup=get_main_menu(role)
+            reply_markup=get_main_menu(roles)
         )
 
 @router.message(F.text == "Profile")
@@ -183,4 +221,6 @@ async def my_sessions_handler(message: types.Message):
             await message.answer(response, parse_mode="Markdown")
     else:
         await message.answer("Please register first.")
+    db.close()
+
     db.close()

@@ -283,7 +283,10 @@
         <nav>
             <div class="nav-item active" onclick="showSection('students')">Students</div>
             <div class="nav-item" onclick="showSection('tutors')">Tutors</div>
-            <div class="nav-item" onclick="showSection('reports')">Reports</div>
+            <div class="nav-item" onclick="showSection('parents')">Parents</div>
+            <div class="nav-item" onclick="showSection('reports')">Sessions</div>
+            <div class="nav-item" onclick="showSection('detailed-reports')">Reports Feed</div>
+            <div class="nav-item" onclick="showSection('settings')">Settings</div>
         </nav>
     </div>
 
@@ -337,6 +340,24 @@
             </table>
         </div>
 
+        <div id="parents-table" class="table-container animate-fade" style="display: none;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Occupation</th>
+                        <th>Children</th>
+                        <th>Last Report Sent</th>
+                        <th>Auto-Reports</th>
+                    </tr>
+                </thead>
+                <tbody id="parents-body">
+                    <!-- Data here -->
+                </tbody>
+            </table>
+        </div>
+
         <div id="reports-section" class="animate-fade" style="display: none;">
             <div class="stats-grid" id="report-stats">
                 <!-- Session stats here -->
@@ -350,12 +371,47 @@
                             <th>Duration</th>
                             <th>Student</th>
                             <th>Tutor</th>
+                            <th>Score</th>
                         </tr>
                     </thead>
                     <tbody id="reports-body">
                         <!-- Session list here -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <div id="detailed-reports-section" class="table-container animate-fade">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Topic</th>
+                        <th>Student</th>
+                        <th>Tutor</th>
+                        <th>Score</th>
+                        <th>Content</th>
+                    </tr>
+                </thead>
+                <tbody id="detailed-reports-body">
+                    <!-- Reports here -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="settings-section" class="animate-fade" style="display: none;">
+            <div class="stat-card" style="max-width: 600px;">
+                <h3 style="margin-bottom: 1.5rem;">Bot Configurations</h3>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-dim)">Daily Report Time
+                        (HH:MM)</label>
+                    <div style="display: flex; gap: 1rem;">
+                        <input type="text" id="setting-report-time" placeholder="08:00"
+                            style="background: rgba(0,0,0,0.2); border: 1px solid var(--border); color: white; padding: 0.5rem; border-radius: 0.5rem; flex: 1;">
+                        <button onclick="saveSetting('daily_report_time', 'setting-report-time')"
+                            style="padding: 0.5rem 1.5rem;">Save</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -423,7 +479,10 @@
 
             document.getElementById('students-table').style.display = 'none';
             document.getElementById('tutors-table').style.display = 'none';
+            document.getElementById('parents-table').style.display = 'none';
             document.getElementById('reports-section').style.display = 'none';
+            document.getElementById('detailed-reports-section').style.display = 'none';
+            document.getElementById('settings-section').style.display = 'none';
             document.getElementById('stats-container').style.display = 'none';
 
             if (section === 'students') {
@@ -435,6 +494,15 @@
             } else if (section === 'reports') {
                 document.getElementById('reports-section').style.display = 'block';
                 loadReports('daily');
+            } else if (section === 'detailed-reports') {
+                document.getElementById('detailed-reports-section').style.display = 'block';
+                loadDetailedReports();
+            } else if (section === 'settings') {
+                document.getElementById('settings-section').style.display = 'block';
+                loadSettings();
+            } else if (section === 'parents') {
+                document.getElementById('parents-table').style.display = 'block';
+                loadParents();
             }
         }
 
@@ -452,6 +520,26 @@
                         <td>${s.school}</td>
                         <td>${s.age}</td>
                         <td style="color: var(--text-dim)">${s.phone || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadParents() {
+            const data = await fetchData('/admin/parents');
+            if (!data) return;
+            const body = document.getElementById('parents-body');
+            body.innerHTML = '';
+            data.forEach(p => {
+                const lastSent = p.last_report_sent ? new Date(p.last_report_sent).toLocaleString() : '<span style="color: var(--text-dim)">Never</span>';
+                body.innerHTML += `
+                    <tr>
+                        <td>${p.id}</td>
+                        <td style="font-weight: 600">${p.full_name}</td>
+                        <td>${p.occupation}</td>
+                        <td>${p.children.map(c => `<span class="badge" style="background: rgba(99,102,241,0.1)">${c}</span>`).join(' ')}</td>
+                        <td>${lastSent}</td>
+                        <td><span class="badge badge-verified">Active</span></td>
                     </tr>
                 `;
             });
@@ -527,6 +615,7 @@
                         <td>${sess.duration_minutes}m</td>
                         <td>${sess.student_name || sess.student_id}</td>
                         <td>${sess.tutor_name || sess.tutor_id}</td>
+                        <td>${sess.report_score ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2)">${sess.report_score}/10</span>` : '<span style="color: var(--text-dim)">-</span>'}</td>
                     </tr>
                 `;
             });
@@ -570,6 +659,47 @@
 
         function closeModal() {
             document.getElementById('user-modal').style.display = 'none';
+        }
+
+        async function loadDetailedReports() {
+            const data = await fetchData('/admin/reports');
+            if (!data) return;
+            const body = document.getElementById('detailed-reports-body');
+            body.innerHTML = '';
+            data.forEach(r => {
+                body.innerHTML += `
+                    <tr>
+                        <td>${new Date(r.created_at).toLocaleDateString()}</td>
+                        <td>${r.topic}</td>
+                        <td>${r.student_name}</td>
+                        <td>${r.tutor_name}</td>
+                        <td><span class="badge" style="background: rgba(99, 102, 241, 0.2)">${r.performance_score}/10</span></td>
+                        <td style="font-size: 0.85rem; color: var(--text-dim); max-width: 300px;">${r.content}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function loadSettings() {
+            const data = await fetchData('/admin/settings');
+            if (!data) return;
+            if (data.daily_report_time) {
+                document.getElementById('setting-report-time').value = data.daily_report_time;
+            }
+        }
+
+        async function saveSetting(key, inputId) {
+            const val = document.getElementById(inputId).value;
+            const token = localStorage.getItem('adminToken');
+            const response = await fetch(`/admin/settings/${key}?value=${encodeURIComponent(val)}`, {
+                method: 'POST',
+                headers: { 'x-admin-token': token }
+            });
+            if (response.ok) {
+                alert('Setting saved!');
+            } else {
+                alert('Failed to save');
+            }
         }
 
         function refreshData() {

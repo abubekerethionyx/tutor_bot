@@ -55,6 +55,17 @@ class ParentProfile(Base):
 
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
     occupation = Column(String)
+    last_report_sent_at = Column(DateTime, nullable=True)
+
+
+class ParentReportLog(Base):
+    __tablename__ = "parent_report_logs"
+
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(Integer, ForeignKey("users.id"))
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String)  # success, failed
+    error_message = Column(Text, nullable=True)
 
 
 class Enrollment(Base):
@@ -114,3 +125,11 @@ class AuditLog(Base):
     entity = Column(String)
     entity_id = Column(Integer)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    
+    key = Column(String, primary_key=True)
+    value = Column(String)
+    description = Column(String)

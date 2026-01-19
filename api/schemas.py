@@ -89,6 +89,17 @@ class AdminTutorDetail(BaseModel):
     verified: bool
     created_at: datetime
 
+
+class AdminParentDetail(BaseModel):
+    id: int
+    full_name: str
+    phone: Optional[str]
+    telegram_id: int
+    occupation: str
+    last_report_sent: Optional[datetime]
+    children: List[str]
+    created_at: datetime
+
 class SessionReportSummary(BaseModel):
     period: str
     total_sessions: int

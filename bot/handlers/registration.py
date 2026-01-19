@@ -124,9 +124,11 @@ async def finish_registration(message: types.Message, state: FSMContext):
         db.add(profile)
         db.commit()
 
+    db.refresh(user)
+    roles = [r.role for r in user.roles]
     db.close()
     await state.clear()
     await message.answer(
         "Registration complete! 🎉 You can now use the menu below.",
-        reply_markup=get_main_menu(data['role'])
+        reply_markup=get_main_menu(roles)
     )

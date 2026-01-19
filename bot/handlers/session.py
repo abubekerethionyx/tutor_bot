@@ -7,6 +7,7 @@ from services.session_service import SessionService
 from bot.keyboards.common import get_main_menu
 from datetime import datetime
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from database.models import User, StudentProfile
 
 router = Router()
 
@@ -23,8 +24,8 @@ async def create_session_start(message: types.Message, state: FSMContext):
     roles = [r.role for r in user.roles]
     is_tutor = "tutor" in roles
     is_student = "student" in roles
+    is_parent = "parent" in roles
     
-    from database.models import User
     builder = ReplyKeyboardBuilder()
     
     if is_tutor:
@@ -55,27 +56,82 @@ async def create_session_start(message: types.Message, state: FSMContext):
         
         prompt = "Which tutor is this session for?"
     
+    elif is_parent:
+        children = db.query(User).join(StudentProfile, User.id == StudentProfile.user_id).filter(StudentProfile.parent_id == user.id).all()
+        if not children:
+            await message.answer("You haven't linked any children yet. Link a child first to create sessions for them.")
+            db.close()
+            return
+            
+        for child in children:
+            builder.button(text=f"For Child: {child.full_name} (ID: {child.id})")
+        
+        prompt = "Which child are you creating this session for?"
+        
     else:
-        await message.answer("Only students and tutors can create sessions.")
+        await message.answer("Only students, tutors, and parents can create sessions.")
         db.close()
         return
 
     builder.adjust(1)
+    builder.button(text="Back")
     await message.answer(prompt, reply_markup=builder.as_markup(resize_keyboard=True))
     await state.set_state(SessionStates.waiting_for_student_pick)
-    await state.update_data(user_role="tutor" if is_tutor else "student")
+    
+    role_flag = "tutor" if is_tutor else ("student" if is_student else "parent")
+    await state.update_data(user_role=role_flag)
     db.close()
 
 @router.message(SessionStates.waiting_for_student_pick)
 async def process_student_pick(message: types.Message, state: FSMContext):
-    # Extract ID from "Student/Tutor: Name (ID: 123)"
+    data = await state.get_data()
+    db = SessionLocal()
+    
+    if message.text.startswith("For Child:"):
+        # Parent chose a child, now need to choose a tutor for that child
+        try:
+            child_id = int(message.text.split("ID: ")[1].replace(")", ""))
+            enrollments = SessionService.get_enrollments_for_student(db, child_id)
+            
+            if not enrollments:
+                await message.answer("This child has no enrolled tutors. Please enroll them first.")
+                db.close()
+                return
+                
+            builder = ReplyKeyboardBuilder()
+            for enr in enrollments:
+                tutor = db.query(User).filter(User.id == enr.tutor_id).first()
+                if tutor:
+                    builder.button(text=f"Tutor: {tutor.full_name} (ID: {tutor.id})")
+            
+            builder.adjust(1)
+            builder.button(text="Back")
+            await message.answer("Which tutor is this session with?", reply_markup=builder.as_markup(resize_keyboard=True))
+            await state.update_data(student_id=child_id)
+            db.close()
+            return
+        except (IndexError, ValueError):
+            await message.answer("Please pick a child from the keyboard.")
+            db.close()
+            return
+
+    # Standard flow for tutors/students
     try:
         other_id = int(message.text.split("ID: ")[1].replace(")", ""))
-        await state.update_data(other_id=other_id)
+        
+        if data['user_role'] == "tutor":
+            await state.update_data(student_id=other_id, tutor_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
+        elif data['user_role'] == "student":
+            await state.update_data(tutor_id=other_id, student_id=UserService.get_user_by_telegram_id(db, message.from_user.id).id)
+        elif data['user_role'] == "parent":
+            # If we reach here, it means we already picked a child and now we picked a tutor
+            await state.update_data(tutor_id=other_id)
+            
         await message.answer("What is the topic of the session?", reply_markup=types.ReplyKeyboardRemove())
         await state.set_state(SessionStates.waiting_for_topic)
     except (IndexError, ValueError):
         await message.answer("Please pick a person from the keyboard.")
+    db.close()
 
 @router.message(SessionStates.waiting_for_topic)
 async def process_topic(message: types.Message, state: FSMContext):
@@ -100,13 +156,18 @@ async def process_duration(message: types.Message, state: FSMContext):
         data = await state.get_data()
         
         db = SessionLocal()
-        user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        data = await state.get_data()
         
-        if data['user_role'] == "tutor":
+        if data['user_role'] == "parent":
+            tutor_id = data['tutor_id']
+            student_id = data['student_id']
+        elif data['user_role'] == "tutor":
+            user = UserService.get_user_by_telegram_id(db, message.from_user.id)
             tutor_id = user.id
-            student_id = data['other_id']
-        else:
-            tutor_id = data['other_id']
+            student_id = data['student_id'] # Note: need to make sure this is set correctly in previous step
+        else: # student
+            user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+            tutor_id = data['tutor_id']
             student_id = user.id
 
         SessionService.create_session(
@@ -119,7 +180,8 @@ async def process_duration(message: types.Message, state: FSMContext):
         )
         db.close()
         
-        await message.answer("✅ Session created successfully!", reply_markup=get_main_menu(data['user_role']))
+        roles = [r.role for r in UserService.get_user_by_telegram_id(SessionLocal(), message.from_user.id).roles]
+        await message.answer("✅ Session created successfully!", reply_markup=get_main_menu(roles))
         await state.clear()
     except ValueError:
         await message.answer("Please enter a valid number of minutes.")

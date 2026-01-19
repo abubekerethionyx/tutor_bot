@@ -31,6 +31,7 @@ async def create_report_start(message: types.Message, state: FSMContext):
         builder.button(text=f"{sess.topic} (ID: {sess.id})")
     
     builder.adjust(1)
+    builder.button(text="Back")
     await message.answer("Which session would you like to report on?", reply_markup=builder.as_markup(resize_keyboard=True))
     await state.set_state(ReportStates.waiting_for_session_pick)
     db.close()
