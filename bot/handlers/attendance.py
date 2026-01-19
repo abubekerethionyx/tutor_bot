@@ -122,20 +122,41 @@ async def mark_attendance_start(message: types.Message, state: FSMContext):
         db.close()
         return
         
+    # Group sessions by (topic, scheduled_at)
+    grouped = {}
+    for sess in sessions:
+        key = (sess.topic, sess.scheduled_at)
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(sess)
+        
     builder = ReplyKeyboardBuilder()
     count = 0
-    for sess in sessions:
-        # Check if attendance already exists? Maybe allow update?
-        # For now, list all recent ones
-        student_name = sess.student_profile.full_name if sess.student_profile else "Unknown"
-        builder.button(text=f"{sess.topic} w/ {student_name} (ID: {sess.id})")
+    
+    # Store grouping in state so we can retrieve lists later
+    # We can serialize by index since we only show few? 
+    # Or just use key string. Using index for simplicity in this turn.
+    
+    group_list = []
+    
+    for (topic, time), sess_list in grouped.items():
+        time_str = time.strftime("%Y-%m-%d %H:%M")
+        size = len(sess_list)
+        label = f"{topic} ({size} students) @ {time_str}"
+        builder.button(text=label)
+        
+        # Store IDs for this group
+        group_list.append({"ids": [s.id for s in sess_list], "label": label})
+        
         count += 1
         if count >= 10: break
+    
+    await state.update_data(session_groups=group_list)
     
     builder.adjust(1)
     builder.button(text="Back")
     
-    await message.answer("Select a session to mark attendance for:", reply_markup=builder.as_markup(resize_keyboard=True))
+    await message.answer("Select a session (or group) to mark attendance for:", reply_markup=builder.as_markup(resize_keyboard=True))
     await state.set_state(AttendanceStates.waiting_for_session_pick)
     db.close()
 
@@ -146,10 +167,64 @@ async def process_session_pick_mark(message: types.Message, state: FSMContext):
         await message.answer("Operation cancelled.") # Or return to menu
         return
 
-    try:
-        session_id = int(message.text.split("ID: ")[1].replace(")", ""))
-        await state.update_data(session_id=session_id)
+    data = await state.get_data()
+    # Find group based on text
+    groups = data.get('session_groups', [])
+    selected_group = next((g for g in groups if g['label'] == message.text), None)
+    
+    if not selected_group:
+        await message.answer("Please select a session from the keyboard.")
+        return
+
+    session_ids = selected_group['ids']
+    
+    db = SessionLocal()
+    
+    # Fetch student names used in this group
+    students = []
+    for sid in session_ids:
+        sess = db.query(TSession).filter(TSession.id == sid).first()
+        if sess and sess.student_profile:
+             students.append((sid, sess.student_profile.full_name))
+             
+    # Prepare selection state
+    await state.update_data(attendance_session_ids=session_ids, student_list=students, selected_students=[])
+    
+    await show_attendance_student_selection(message, state)
+    db.close()
+
+async def show_attendance_student_selection(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    student_list = data.get('student_list', []) # [(session_id, name)]
+    selected_students = data.get('selected_students', []) # [session_id]
+    
+    builder = ReplyKeyboardBuilder()
+    
+    for sid, name in student_list:
+        status = "✅" if sid in selected_students else "⬜"
+        builder.button(text=f"{status} {name} (Ref: {sid})")
         
+    builder.adjust(1)
+    builder.button(text="Mark Selected")
+    builder.button(text="Back")
+    
+    await message.answer(f"Select students to apply status to ({len(selected_students)} selected):", reply_markup=builder.as_markup(resize_keyboard=True))
+    await state.set_state(AttendanceStates.waiting_for_student_selection)
+
+
+@router.message(AttendanceStates.waiting_for_student_selection)
+async def process_attendance_student_selection(message: types.Message, state: FSMContext):
+    if message.text == "Back":
+        await state.clear()
+        await message.answer("Main Menu", reply_markup=get_main_menu(["tutor"])) 
+        return
+
+    if message.text == "Mark Selected":
+        data = await state.get_data()
+        if not data.get('selected_students'):
+             await message.answer("Select at least one student.")
+             return
+             
         builder = ReplyKeyboardBuilder()
         builder.button(text="Present ✅")
         builder.button(text="Absent ❌")
@@ -157,17 +232,30 @@ async def process_session_pick_mark(message: types.Message, state: FSMContext):
         builder.adjust(3)
         builder.button(text="Back")
         
-        await message.answer("Select status:", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.answer("Select status for these students:", reply_markup=builder.as_markup(resize_keyboard=True))
         await state.set_state(AttendanceStates.waiting_for_status_pick)
+        return
+        
+    try:
+        # Expected: "✅ Name (Ref: 123)"
+        ref_id = int(message.text.split("Ref: ")[1].replace(")", ""))
+        data = await state.get_data()
+        selected = data.get('selected_students', [])
+        
+        if ref_id in selected:
+            selected.remove(ref_id)
+        else:
+            selected.append(ref_id)
+            
+        await state.update_data(selected_students=selected)
+        await show_attendance_student_selection(message, state)
     except (IndexError, ValueError):
-        await message.answer("Please select a session from the list.")
+        await message.answer("Use the keyboard.")
 
 @router.message(AttendanceStates.waiting_for_status_pick)
 async def process_status_pick(message: types.Message, state: FSMContext):
     if message.text == "Back":
-        # Maybe go back to session list? For now just cancel
-        await state.clear()
-        await message.answer("Operation cancelled.")
+        await show_attendance_student_selection(message, state)
         return
 
     status_map = {
@@ -182,19 +270,20 @@ async def process_status_pick(message: types.Message, state: FSMContext):
         return
         
     data = await state.get_data()
-    session_id = data.get('session_id')
+    target_sessions = data.get('selected_students', []) # List of session IDs
     
     db = SessionLocal()
-    session = db.query(TSession).filter(TSession.id == session_id).first()
+    count = 0
+    for sid in target_sessions:
+        session = db.query(TSession).filter(TSession.id == sid).first()
+        if session:
+            SessionService.mark_attendance(db, sid, session.student_profile_id, status)
+            count += 1
     
-    if session:
-        SessionService.mark_attendance(db, session_id, session.student_profile_id, status)
-        user = UserService.get_user_by_telegram_id(db, message.from_user.id)
-        roles = [r.role for r in user.roles] if user else ["tutor"]
-        await message.answer(f"✅ Attendance marked as {status.capitalize()}!", reply_markup=get_main_menu(roles)) 
-    else:
-        await message.answer("Session not found.")
-        
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    roles = [r.role for r in user.roles] if user else ["tutor"]
+    
+    await message.answer(f"✅ Marked {count} students as {status.capitalize()}!", reply_markup=get_main_menu(roles))
     await state.clear()
     db.close()
 

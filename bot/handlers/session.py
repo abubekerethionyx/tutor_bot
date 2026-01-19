@@ -34,51 +34,69 @@ async def create_session_start(message: types.Message, state: FSMContext):
         db.close()
         return
     
-    for enr in enrollments:
-        profile = db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first()
-        if profile:
-            builder.button(text=f"Student Profile: {profile.full_name} (ID: {profile.id})")
+    await state.update_data(user_role="tutor", enrollments=[(enr.student_profile_id, db.query(StudentProfile).filter(StudentProfile.id == enr.student_profile_id).first().full_name) for enr in enrollments], selected_ids=[])
     
-    prompt = "Which student profile is this session for?"
+    # Show selection menu
+    await show_student_selection_menu(message, state)
+    db.close()
+
+async def show_student_selection_menu(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    enrollments = data.get('enrollments', [])
+    selected_ids = data.get('selected_ids', [])
+    
+    builder = ReplyKeyboardBuilder()
+    
+    for pid, name in enrollments:
+        status = "✅" if pid in selected_ids else "⬜"
+        builder.button(text=f"{status} {name} (ID: {pid})")
     
     builder.adjust(1)
+    builder.button(text="Done")
     builder.button(text="Back")
-    await message.answer(prompt, reply_markup=builder.as_markup(resize_keyboard=True))
+    
+    if hasattr(message, 'reply_markup'):
+         # If called from button click, it is different but here we use ReplyKeyboard so we always send new message or just update?
+         # ReplyKeyboard can't be edited in place easily like Inline.
+         # So we just send a new message "Select students:"
+         pass
+         
+    await message.answer("Select students for the session (Toggle):", reply_markup=builder.as_markup(resize_keyboard=True))
     await state.set_state(SessionStates.waiting_for_student_pick)
-    await state.update_data(user_role="tutor")
-    db.close()
 
 @router.message(SessionStates.waiting_for_student_pick)
 async def process_student_pick(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    db = SessionLocal()
+    selected_ids = data.get('selected_ids', [])
     
     if message.text == "Back":
-        await message.answer("Main Menu", reply_markup=get_main_menu(["tutor"])) # simplified fallback
+        await message.answer("Main Menu", reply_markup=get_main_menu(["tutor"])) 
         await state.clear()
-        db.close()
         return
 
-    try:
-        # Expected format: "Student Profile: Name (ID: 123)"
-        other_id = int(message.text.split("ID: ")[1].replace(")", ""))
-        
-        # User is always tutor here
-        tutor = UserService.get_user_by_telegram_id(db, message.from_user.id)
-        if hasattr(tutor, 'id'):
-             await state.update_data(student_profile_id=other_id, tutor_id=tutor.id)
-        else:
-             # Just in case
-             await message.answer("Error finding your user.")
-             db.close()
-             return
+    if message.text == "Done":
+        if not selected_ids:
+            await message.answer("Please select at least one student.")
+            return
             
         await message.answer("What is the topic of the session?", reply_markup=types.ReplyKeyboardRemove())
         await state.set_state(SessionStates.waiting_for_topic)
+        return
+
+    try:
+        # Expected format: "✅ Name (ID: 123)" or "⬜ Name (ID: 123)"
+        other_id = int(message.text.split("ID: ")[1].replace(")", ""))
+        
+        if other_id in selected_ids:
+            selected_ids.remove(other_id)
+        else:
+            selected_ids.append(other_id)
+        
+        await state.update_data(selected_ids=selected_ids)
+        await show_student_selection_menu(message, state) # Refresh menu
+        
     except (IndexError, ValueError, AttributeError):
-        await message.answer("Please pick a student from the keyboard.")
-    
-    db.close()
+        await message.answer("Please use the keyboard buttons.")
 
 @router.message(F.text == "My Sessions")
 async def my_sessions_handler(message: types.Message, state: FSMContext):
@@ -237,17 +255,27 @@ async def process_duration(message: types.Message, state: FSMContext):
         
         db = SessionLocal()
         
-        tutor_id = data.get('tutor_id')
-        student_profile_id = data.get('student_profile_id')
-
-        SessionService.create_session(
-            db=db,
-            tutor_id=tutor_id,
-            student_profile_id=student_profile_id,
-            scheduled_at=datetime.fromisoformat(data['scheduled_at']),
-            duration_minutes=duration,
-            topic=data['topic']
-        )
+        tutor_user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+        tutor_id = tutor_user.id
+        
+        selected_ids = data.get('selected_ids', [])
+        # If created by old flow (single student), it might be missing
+        if not selected_ids and data.get('student_profile_id'):
+            selected_ids = [data.get('student_profile_id')]
+            
+        count = 0
+        for info in selected_ids: 
+            # selected_ids is list of ints
+            SessionService.create_session(
+                db=db,
+                tutor_id=tutor_id,
+                student_profile_id=info,
+                scheduled_at=datetime.fromisoformat(data['scheduled_at']),
+                duration_minutes=duration,
+                topic=data['topic']
+            )
+            count += 1
+            
         db.close()
         
         user = UserService.get_user_by_telegram_id(SessionLocal(), message.from_user.id)
