@@ -512,10 +512,11 @@
             const body = document.getElementById('students-body');
             body.innerHTML = '';
             data.forEach(s => {
+                const managedBadge = s.managed ? '<span class="badge" style="background: rgba(139, 92, 246, 0.2); color: #8b5cf6; margin-left: 0.5rem;">Managed</span>' : '';
                 body.innerHTML += `
                     <tr>
                         <td>${s.id}</td>
-                        <td style="font-weight: 600; cursor: pointer; color: var(--primary)" onclick="viewUserSessions(${s.id}, 'student', '${s.full_name}')">${s.full_name}</td>
+                        <td style="font-weight: 600; cursor: pointer; color: var(--primary)" onclick="viewProfileSessions(${s.id}, '${s.full_name}')">${s.full_name}${managedBadge}</td>
                         <td>${s.grade}</td>
                         <td>${s.school}</td>
                         <td>${s.age}</td>
@@ -623,12 +624,129 @@
 
         async function viewUserSessions(userId, role, name) {
             document.getElementById('modal-title').innerText = `${name}'s Sessions (${role})`;
-            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Session detail view is being updated for the new family account system. Check back soon!</p>';
+            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Loading sessions...</p>';
             document.getElementById('user-modal').style.display = 'flex';
 
-            // Temporarily disabled while we refactor for profile-based architecture
-            // const data = await fetchData(`/admin/users/${userId}/sessions?role=${role}`);
-            // ... rest of implementation
+            const data = await fetchData(`/admin/users/${userId}/sessions?role=${role}`);
+            if (!data) {
+                document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Failed to load sessions.</p>';
+                return;
+            }
+
+            const content = document.getElementById('modal-content');
+            if (data.length === 0) {
+                content.innerHTML = '<p style="color: var(--text-dim)">No sessions found for this user.</p>';
+                return;
+            }
+
+            content.innerHTML = '';
+            data.forEach(sess => {
+                const otherParty = role === 'tutor' ? sess.student_name : sess.tutor_name;
+                const attendanceStatus = sess.attendance.marked
+                    ? `<span class="badge" style="background: ${sess.attendance.status === 'present' ? 'rgba(34, 197, 94, 0.2); color: #22c55e' :
+                        sess.attendance.status === 'absent' ? 'rgba(239, 68, 68, 0.2); color: #ef4444' :
+                            'rgba(245, 158, 11, 0.2); color: #f59e0b'
+                    }">${sess.attendance.status === 'present' ? '✅ Present' : sess.attendance.status === 'absent' ? '❌ Absent' : '⏰ Late'}</span>`
+                    : '<span style="color: var(--text-dim)">⚪ Not Marked</span>';
+
+                const reportInfo = sess.report.exists
+                    ? `<div class="report-box" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem;">📊 Report (Score: ${sess.report.score}/10)</div>
+                        <div style="font-size: 0.9rem; color: var(--text-dim)">${sess.report.content}</div>
+                    </div>`
+                    : '<div style="color: var(--text-dim); font-size: 0.9rem; margin-top: 0.5rem;">📝 No report yet</div>';
+
+                content.innerHTML += `
+                    <div class="session-card" style="background: var(--bg-hover); padding: 1.5rem; border-radius: 0.75rem; margin-bottom: 1rem;">
+                        <div class="session-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-weight: 600; font-size: 1.1rem;">${sess.topic}</span>
+                            <span style="color: var(--text-dim); font-size: 0.9rem;">${new Date(sess.scheduled_at).toLocaleString()}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">${role === 'tutor' ? 'Student' : 'Tutor'}</div>
+                                <div style="font-weight: 500;">${otherParty}</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Duration</div>
+                                <div style="font-weight: 500;">${sess.duration_minutes} min</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Attendance</div>
+                                <div>${attendanceStatus}</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Session ID</div>
+                                <div style="font-weight: 500;">#${sess.id}</div>
+                            </div>
+                        </div>
+                        ${reportInfo}
+                    </div>
+                `;
+            });
+        }
+
+        async function viewProfileSessions(profileId, name) {
+            document.getElementById('modal-title').innerText = `${name}'s Sessions (Student Profile)`;
+            document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Loading sessions...</p>';
+            document.getElementById('user-modal').style.display = 'flex';
+
+            const data = await fetchData(`/admin/profiles/${profileId}/sessions`);
+            if (!data) {
+                document.getElementById('modal-content').innerHTML = '<p style="color: var(--text-dim)">Failed to load sessions.</p>';
+                return;
+            }
+
+            const content = document.getElementById('modal-content');
+            if (data.length === 0) {
+                content.innerHTML = '<p style="color: var(--text-dim)">No sessions found for this student.</p>';
+                return;
+            }
+
+            content.innerHTML = '';
+            data.forEach(sess => {
+                const attendanceStatus = sess.attendance.marked
+                    ? `<span class="badge" style="background: ${sess.attendance.status === 'present' ? 'rgba(34, 197, 94, 0.2); color: #22c55e' :
+                        sess.attendance.status === 'absent' ? 'rgba(239, 68, 68, 0.2); color: #ef4444' :
+                            'rgba(245, 158, 11, 0.2); color: #f59e0b'
+                    }">${sess.attendance.status === 'present' ? '✅ Present' : sess.attendance.status === 'absent' ? '❌ Absent' : '⏰ Late'}</span>`
+                    : '<span style="color: var(--text-dim)">⚪ Not Marked</span>';
+
+                const reportInfo = sess.report.exists
+                    ? `<div class="report-box" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 0.5rem; margin-top: 0.5rem;">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem;">📊 Report (Score: ${sess.report.score}/10)</div>
+                        <div style="font-size: 0.9rem; color: var(--text-dim)">${sess.report.content}</div>
+                    </div>`
+                    : '<div style="color: var(--text-dim); font-size: 0.9rem; margin-top: 0.5rem;">📝 No report yet</div>';
+
+                content.innerHTML += `
+                    <div class="session-card" style="background: var(--bg-hover); padding: 1.5rem; border-radius: 0.75rem; margin-bottom: 1rem;">
+                        <div class="session-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-weight: 600; font-size: 1.1rem;">${sess.topic}</span>
+                            <span style="color: var(--text-dim); font-size: 0.9rem;">${new Date(sess.scheduled_at).toLocaleString()}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Tutor</div>
+                                <div style="font-weight: 500;">${sess.tutor_name}</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Duration</div>
+                                <div style="font-weight: 500;">${sess.duration_minutes} min</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Attendance</div>
+                                <div>${attendanceStatus}</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 0.85rem; color: var(--text-dim);">Session ID</div>
+                                <div style="font-weight: 500;">#${sess.id}</div>
+                            </div>
+                        </div>
+                        ${reportInfo}
+                    </div>
+                `;
+            });
         }
 
         function closeModal() {

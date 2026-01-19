@@ -9,6 +9,8 @@ from api import schemas
 from services.user_service import UserService
 from services.session_service import SessionService
 from services.admin_service import AdminService
+from api import admin_routes
+from api.auth import verify_admin
 from config import settings
 from typing import List, Optional
 
@@ -17,6 +19,9 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Tutormula API")
 
+# Include modular admin routes
+app.include_router(admin_routes.router)
+
 # Dependency
 def get_db():
     db = SessionLocal()
@@ -24,11 +29,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-def verify_admin(x_admin_token: str = Header(...)):
-    if x_admin_token != settings.ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Invalid admin token")
-    return x_admin_token
 
 @app.get("/")
 async def root():
@@ -143,16 +143,26 @@ def verify_tutor(
         raise HTTPException(status_code=404, detail="Tutor not found")
     return {"message": "Tutor status updated"}
 
-# Temporarily disabled - needs refactoring for profile-based architecture
-# @app.get("/admin/users/{user_id}/sessions")
-# def get_user_sessions_admin(
-#     user_id: int,
-#     role: str = Query("student", enum=["student", "tutor"]),
-#     db: Session = Depends(get_db),
-#     admin: str = Depends(verify_admin)
-# ):
-#     # TODO: Implement profile-aware session lookup
-#     return []
+@app.get("/admin/users/{user_id}/sessions")
+def get_user_sessions_admin(
+    user_id: int,
+    role: str = Query("student", enum=["student", "tutor"]),
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    """Get detailed sessions for a user including attendance and reports"""
+    from services.admin_session_service import AdminSessionService
+    return AdminSessionService.get_user_sessions_detailed(db, user_id, role)
+
+@app.get("/admin/profiles/{profile_id}/sessions")
+def get_profile_sessions_admin(
+    profile_id: int,
+    db: Session = Depends(get_db),
+    admin: str = Depends(verify_admin)
+):
+    """Get detailed sessions for a student profile (for managed children)"""
+    from services.admin_session_service import AdminSessionService
+    return AdminSessionService.get_profile_sessions_detailed(db, profile_id)
 
 @app.get("/admin/reports")
 def get_all_reports_admin(

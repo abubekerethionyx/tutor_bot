@@ -295,13 +295,76 @@ async def my_sessions_handler(message: types.Message):
 
 @router.message(F.text == "Help")
 async def help_handler(message: types.Message):
-    help_text = (
-        "❓ *Tutormula Help Guide*\n\n"
-        "🏠 *Main Menu*: Access your profile, search tutors, and manage sessions.\n\n"
-        "🎓 *For Students*: Find tutors, enroll in courses, and track your sessions.\n\n"
-        "👨‍🏫 *For Tutors*: Create session reports, manage your students, and view your schedule.\n\n"
-        "👪 *For Parents*: Link your children's profiles or create profiles for them. View their progress reports instantly.\n\n"
-        "🔙 *Back*: Use the Back button to return to the main menu from any sub-state.\n\n"
-        "📞 *Support*: If you encounter any issues, please contact our support team at @support_handle."
+    db = SessionLocal()
+    user = UserService.get_user_by_telegram_id(db, message.from_user.id)
+    
+    if not user:
+        # Generic help for unregistered users
+        help_text = (
+            "❓ *Welcome to Tutormula!*\n\n"
+            "To get started, please use /start to register as a Student, Tutor, or Parent.\n\n"
+            "📞 *Support*: Contact @support_handle for assistance."
+        )
+        await message.answer(help_text, parse_mode="Markdown")
+        db.close()
+        return
+    
+    roles = [r.role for r in user.roles]
+    
+    # Build role-specific help
+    help_sections = []
+    
+    help_sections.append("❓ *Tutormula Help Guide*\n")
+    
+    if "student" in roles:
+        help_sections.append(
+            "🎓 *For Students:*\n"
+            "• *Search Tutors*: Browse available tutors and enroll with them\n"
+            "• *My Sessions*: View your upcoming and past sessions\n"
+            "• *My Attendance*: Check your attendance record\n"
+            "• *Profile*: View your academic information and stats\n"
+            "• *Create Session*: Schedule a new session with your enrolled tutors\n"
+        )
+    
+    if "tutor" in roles:
+        help_sections.append(
+            "👨‍🏫 *For Tutors:*\n"
+            "• *My Students*: View all students enrolled with you\n"
+            "• *Create Session*: Schedule sessions with your students\n"
+            "• *Create Report*: Write performance reports after sessions\n"
+            "• *My Sessions*: Manage your teaching schedule\n"
+            "• *Profile*: View your professional details and verification status\n"
+        )
+    
+    if "parent" in roles:
+        help_sections.append(
+            "👪 *For Parents:*\n"
+            "• *Add New Student*: Register your child directly (they don't need their own Telegram)\n"
+            "• *Link Child*: Connect an existing student account to your parent portal\n"
+            "• *My Children*: View all your registered children\n"
+            "• *Child Reports*: Access performance reports for each child\n"
+            "• *Create Session*: Schedule sessions for your children\n"
+            "• *Search Tutors*: Find and enroll tutors for your children\n"
+        )
+    
+    help_sections.append(
+        "\n🔧 *General Features:*\n"
+        "• *Back*: Return to the main menu from any screen\n"
+        "• *Profile*: View your complete account information\n"
+        "• *Help*: Show this help message\n"
     )
+    
+    help_sections.append(
+        "\n💡 *Tips:*\n"
+        "• All your data is securely stored and accessible anytime\n"
+        "• Parents can manage multiple children from one account\n"
+        "• Reports are automatically sent to parents\n"
+    )
+    
+    help_sections.append(
+        "\n📞 *Support*: If you encounter any issues, contact @support_handle"
+    )
+    
+    help_text = "\n".join(help_sections)
     await message.answer(help_text, parse_mode="Markdown")
+    db.close()
