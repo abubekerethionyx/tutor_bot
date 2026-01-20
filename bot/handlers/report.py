@@ -74,6 +74,10 @@ async def process_score(message: types.Message, state: FSMContext):
             performance_score=score
         )
         
+        # Check and notify parent
+        from bot.utils.notifications import check_and_notify_parent
+        await check_and_notify_parent(message.bot, data['session_id'], db)
+        
         roles = [r.role for r in user.roles]
         db.close()
         

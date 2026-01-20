@@ -283,6 +283,12 @@ async def process_status_pick(message: types.Message, state: FSMContext):
     user = UserService.get_user_by_telegram_id(db, message.from_user.id)
     roles = [r.role for r in user.roles] if user else ["tutor"]
     
+    # Notify parents if applicable
+    from bot.utils.notifications import check_and_notify_parent
+    # We iterate over unique sessions marked
+    for sid in target_sessions:
+        await check_and_notify_parent(message.bot, sid, db)
+    
     await message.answer(f"✅ Marked {count} students as {status.capitalize()}!", reply_markup=get_main_menu(roles))
     await state.clear()
     db.close()
