@@ -15,6 +15,9 @@ async def main():
     setup_routers()
 
     print("Bot is starting...")
+    # Fix for TelegramConflictError: If a webhook was set (e.g. by the deployed app),
+    # we must delete it before we can use polling locally.
+    await bot.delete_webhook(drop_pending_updates=True) 
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
