@@ -22,8 +22,12 @@ def run_bot():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        # Default to running both if no argument provided
-        cmd = "both"
+        # On Render, we only want to run the API (which handles the bot via webhook)
+        if os.getenv("RENDER"):
+            cmd = "api"
+        else:
+            # Local development: run both
+            cmd = "both"
     else:
         cmd = sys.argv[1]
 

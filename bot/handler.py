@@ -8,21 +8,11 @@ from services.scheduler_service import setup_scheduler
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+from bot.loader import bot, dp, setup_routers
+
 async def main():
-    bot = Bot(token=settings.BOT_TOKEN)
-    dp = Dispatcher()
-
-    # Include routers from different modules
-    # Priority to common for global buttons like "Back"
-    dp.include_router(common.router)
-    dp.include_router(registration.router)
-    dp.include_router(session.router)
-    dp.include_router(report.router)
-    dp.include_router(parent.router)
-    dp.include_router(attendance.router)
-
-    # Setup Scheduler
-    setup_scheduler(bot)
+    # Setup routers and scheduler
+    setup_routers()
 
     print("Bot is starting...")
     await dp.start_polling(bot)

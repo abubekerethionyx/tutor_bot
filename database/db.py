@@ -3,11 +3,17 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 
-# Use SQLite by default for development, can be easily changed to PostgreSQL
-SQLALCHEMY_DATABASE_URL = "sqlite:///./tutormula.db"
+from config import settings
+
+# Use config for database URL
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# Fix for Render/Heroku Postgres URL which uses postgres:// (deprecated in SQLAlchemy 1.4)
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

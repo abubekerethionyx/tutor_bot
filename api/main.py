@@ -13,11 +13,30 @@ from api import admin_routes
 from api.auth import verify_admin
 from config import settings
 from typing import List, Optional
+from bot.loader import bot, dp, setup_routers
+from aiogram.types import Update
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Tutormula API")
+
+WEBHOOK_PATH = "/webhook"
+
+@app.on_event("startup")
+async def on_startup():
+    webhook_url = os.getenv("RENDER_EXTERNAL_URL")
+    if webhook_url:
+        # We are on Render (or an env with external URL set), assume we want webhooks
+        webhook_url = webhook_url + WEBHOOK_PATH
+        setup_routers()
+        await bot.set_webhook(webhook_url)
+        print(f"Webhook set to {webhook_url}")
+
+@app.post(WEBHOOK_PATH)
+async def bot_webhook(update: dict):
+    telegram_update = Update.model_validate(update, context={"bot": bot})
+    await dp.feed_update(bot, telegram_update)
 
 # Include modular admin routes
 app.include_router(admin_routes.router)
