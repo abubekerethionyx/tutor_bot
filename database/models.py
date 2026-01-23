@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, Text, Boolean
+    Column, Integer, String, DateTime, ForeignKey, Text, Boolean, BigInteger
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -9,7 +9,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, index=True)
+    telegram_id = Column(BigInteger, unique=True, index=True)
     full_name = Column(String, nullable=False)
     phone = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
