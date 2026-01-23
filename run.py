@@ -23,7 +23,8 @@ def run_bot():
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         # On Render, we only want to run the API (which handles the bot via webhook)
-        if os.getenv("RENDER"):
+        # Check for multiple Render-specific env vars to be sure
+        if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"):
             cmd = "api"
         else:
             # Local development: run both
