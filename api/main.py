@@ -25,6 +25,18 @@ WEBHOOK_PATH = "/webhook"
 
 @app.on_event("startup")
 async def on_startup():
+    # Run database migrations
+    import alembic.config
+    import alembic.command
+    
+    # Run migrations programmatically
+    alembic_args = [
+        '--raiseerr',
+        'upgrade', 'head',
+    ]
+    # We need to make sure we are in the root directory where alembic.ini is
+    alembic.command.upgrade(alembic.config.Config("alembic.ini"), "head")
+
     webhook_url = os.getenv("RENDER_EXTERNAL_URL")
     if webhook_url:
         # We are on Render (or an env with external URL set), assume we want webhooks
